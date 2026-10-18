@@ -1,0 +1,42 @@
+name: Linux verification
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  checks:
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: '1.27.2'
+          cache: true
+      - run: make tools
+      - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - run: make check fuzz reproducible release-binaries sbom
+      - name: Real container view smoke test
+        run: |
+          if [ "$(uname -m)" = aarch64 ]; then binary=dist/lasa-0.1.0-linux-arm64; else binary=dist/lasa-0.1.0-linux-amd64; fi
+          docker build --build-arg LASA_BINARY="$binary" -t lasa-ci -f deploy/container/Dockerfile .
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges lasa-ci doctor --format json
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges lasa-ci scan --profile container --format json > container-report.json
+          ./bin/lasa report --input container-report.json --format html --output container-report.html
+  bpf-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.27.2'
+      - run: docker build -t lasa-bpf -f bpf/Dockerfile .
+      - name: Regenerate and compare sensor objects
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e GOPATH=/tmp/go -v "$PWD:/src" -v "$(go env GOROOT):/opt/go:ro" lasa-bpf
+          git diff --exit-code -- internal/collector/ebpf/sensor_bpfel.go internal/collector/ebpf/sensor_bpfel.o

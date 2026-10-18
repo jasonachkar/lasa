@@ -1,0 +1,540 @@
+{
+  "schema": "lasa.rules/v1",
+  "rules": [
+    {
+      "id": "LASA-001",
+      "version": "1",
+      "subject": "process",
+      "category": "exposure",
+      "title": "Privileged listener with dangerous initial-user-namespace capabilities",
+      "description": "A non-loopback listener is owned by a process with a dangerous effective capability in the initial user namespace. Reachability beyond this namespace is unverified.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "network.potential",
+        "capability.dangerous"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Remove unnecessary capabilities, run under a dedicated account and restrict listener reachability.",
+      "when": {
+        "all": [
+          {
+            "predicate": "network.potential",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "predicate": "capability.dangerous",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-002",
+      "version": "1",
+      "subject": "process",
+      "category": "exposure",
+      "title": "Confirmed exposure with initial-namespace root privilege",
+      "description": "A separately confirmed exposure fact combines with initial-user-namespace root privilege. Static collection never asserts confirmed exposure.",
+      "severity": "critical",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "network.confirmed",
+        "privilege.host_root"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Restrict the independently verified entry point and remove root execution.",
+      "when": {
+        "all": [
+          {
+            "predicate": "network.confirmed",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "predicate": "privilege.host_root",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-003",
+      "version": "1",
+      "subject": "process",
+      "category": "exposure",
+      "title": "Potentially exposed conventional management port",
+      "description": "A process owns a non-loopback endpoint on a conventional management or database port. Port number does not establish protocol identity or internet reachability.",
+      "severity": "medium",
+      "confidence": "medium",
+      "unknown": "skip",
+      "required_evidence": [
+        "network.potential",
+        "network.management"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Verify the service and its intended clients; bind to a restricted interface and enforce authentication and network policy.",
+      "when": {
+        "all": [
+          {
+            "predicate": "network.potential",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "predicate": "network.management",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-004",
+      "version": "1",
+      "subject": "process",
+      "category": "isolation",
+      "title": "Initial-namespace root process without seccomp or NoNewPrivs",
+      "description": "A root process in the initial user namespace reports seccomp disabled and NoNewPrivs disabled. This is a conditional hardening risk, not evidence of compromise.",
+      "severity": "medium",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "privilege.host_root",
+        "isolation.weak"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Validate workload compatibility, reduce privilege, and configure service-level NoNewPrivileges and appropriate syscall filtering.",
+      "when": {
+        "all": [
+          {
+            "predicate": "privilege.host_root",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "predicate": "isolation.weak",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-005",
+      "version": "1",
+      "subject": "process",
+      "category": "container",
+      "title": "Container hint with initial PID namespace access",
+      "description": "Cgroup naming suggests a container while the process belongs to the initial PID namespace. Container identification remains heuristic.",
+      "severity": "high",
+      "confidence": "medium",
+      "unknown": "skip",
+      "required_evidence": [
+        "container.hint",
+        "container.host_pid"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Verify the runtime boundary and avoid sharing the host PID namespace where unnecessary.",
+      "when": {
+        "all": [
+          {
+            "predicate": "container.hint",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "predicate": "container.host_pid",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-006",
+      "version": "1",
+      "subject": "file",
+      "category": "container",
+      "title": "Runtime control socket has permissive write metadata",
+      "description": "A scoped container runtime socket path has write permission bits for others or a non-root group. Effective access and runtime authorization remain conditional.",
+      "severity": "high",
+      "confidence": "medium",
+      "unknown": "skip",
+      "required_evidence": [
+        "file.kind",
+        "file.write_candidate"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Restrict socket ownership and group membership; verify ACLs, mount state and runtime authorization. Do not expose the socket to workloads.",
+      "when": {
+        "all": [
+          {
+            "predicate": "file.kind",
+            "op": "eq",
+            "value": "runtime_socket"
+          },
+          {
+            "predicate": "file.write_candidate",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-007",
+      "version": "1",
+      "subject": "file",
+      "category": "execution",
+      "title": "Privileged executable inode has unsafe write metadata",
+      "description": "A scoped file inode matches an executable inode reported by an initial-user-namespace root process and has permissive write metadata. Effective access and future execution remain conditional.",
+      "severity": "high",
+      "confidence": "medium",
+      "unknown": "skip",
+      "required_evidence": [
+        "file.privileged_execution",
+        "file.write_candidate"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Restrict executable write permissions and confirm the running executable inode before replacing or restarting the service.",
+      "when": {
+        "all": [
+          {
+            "predicate": "file.privileged_execution",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "predicate": "file.write_candidate",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-008",
+      "version": "1",
+      "subject": "file",
+      "category": "execution",
+      "title": "Service launch configuration has unsafe write metadata",
+      "description": "A scoped systemd service or drop-in configuration path has permissive write metadata. Unit activation and daemon reload behavior are prerequisites.",
+      "severity": "high",
+      "confidence": "medium",
+      "unknown": "skip",
+      "required_evidence": [
+        "file.kind",
+        "file.write_candidate"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Restrict unit and drop-in ownership and permissions. Review enabled units and reload configuration only through change control.",
+      "when": {
+        "all": [
+          {
+            "predicate": "file.kind",
+            "op": "eq",
+            "value": "service_config"
+          },
+          {
+            "predicate": "file.write_candidate",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-009",
+      "version": "1",
+      "subject": "file",
+      "category": "identity",
+      "title": "Sudoers configuration has unsafe write metadata",
+      "description": "A sudoers configuration path has permissive write metadata. Sudo may reject insecure modes; LASA does not claim the file will be accepted.",
+      "severity": "high",
+      "confidence": "medium",
+      "unknown": "skip",
+      "required_evidence": [
+        "file.kind",
+        "file.write_candidate"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Use root ownership and restrictive sudoers modes; validate configuration through the system sudoers administration workflow.",
+      "when": {
+        "all": [
+          {
+            "predicate": "file.kind",
+            "op": "eq",
+            "value": "sudoers"
+          },
+          {
+            "predicate": "file.write_candidate",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-010",
+      "version": "1",
+      "subject": "file",
+      "category": "execution",
+      "title": "SUID executable has an unsafe write path candidate",
+      "description": "A SUID file has unsafe write permission bits or an inspected writable ancestor. Actual replacement and SUID execution depend on ownership, sticky bits, ACLs, mounts and execution policy.",
+      "severity": "high",
+      "confidence": "medium",
+      "unknown": "skip",
+      "required_evidence": [
+        "file.suid",
+        "file.executable"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Remove unnecessary SUID and restrict file and ancestor permissions; verify sticky directories, nosuid/noexec, ACLs and inode identity.",
+      "when": {
+        "all": [
+          {
+            "predicate": "file.executable",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "predicate": "file.suid",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "any": [
+              {
+                "predicate": "file.write_candidate",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "predicate": "file.unsafe_parent",
+                "op": "eq",
+                "value": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-011",
+      "version": "1",
+      "subject": "file",
+      "category": "execution",
+      "title": "File-capability executable has an unsafe write path candidate",
+      "description": "An executable with a security.capability xattr has permissive file or ancestor write metadata. Capability persistence and execution effect require separate verification.",
+      "severity": "high",
+      "confidence": "medium",
+      "unknown": "skip",
+      "required_evidence": [
+        "file.capability",
+        "file.executable"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Restrict executable and directory permissions; remove unnecessary file capabilities and verify that the xattr has intended semantics.",
+      "when": {
+        "all": [
+          {
+            "predicate": "file.executable",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "predicate": "file.capability",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "any": [
+              {
+                "predicate": "file.write_candidate",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "predicate": "file.unsafe_parent",
+                "op": "eq",
+                "value": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-012",
+      "version": "1",
+      "subject": "file",
+      "category": "execution",
+      "title": "Conventional privileged command search directory is writable",
+      "description": "A conventional system executable search directory has permissive write metadata. Actual use in a privileged PATH is unknown because environments are not collected.",
+      "severity": "high",
+      "confidence": "medium",
+      "unknown": "skip",
+      "required_evidence": [
+        "file.kind",
+        "file.search_path",
+        "file.write_candidate"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Restrict directory ownership and write permissions; verify privileged service command resolution and use absolute executable paths.",
+      "when": {
+        "all": [
+          {
+            "predicate": "file.kind",
+            "op": "eq",
+            "value": "directory"
+          },
+          {
+            "predicate": "file.search_path",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "predicate": "file.write_candidate",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-013",
+      "version": "1",
+      "subject": "file",
+      "category": "identity",
+      "title": "Authorized-key path has unsafe write metadata",
+      "description": "An explicitly scoped authorized_keys path has permissive write metadata. SSH may reject it under StrictModes; effective access and SSH configuration are unverified.",
+      "severity": "high",
+      "confidence": "medium",
+      "unknown": "skip",
+      "required_evidence": [
+        "file.kind",
+        "file.write_candidate"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Restrict the key file and parent directory ownership and permissions; verify SSH StrictModes and the effective authorized-key path.",
+      "when": {
+        "all": [
+          {
+            "predicate": "file.kind",
+            "op": "eq",
+            "value": "authorized_keys"
+          },
+          {
+            "predicate": "file.write_candidate",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-014",
+      "version": "1",
+      "subject": "process",
+      "category": "container",
+      "title": "Container hint with sensitive host-style mount path",
+      "description": "A process with a container cgroup hint sees a mount at a sensitive /host/etc, /host/proc or /host/sys style path. Source ownership and effective access are not established.",
+      "severity": "high",
+      "confidence": "medium",
+      "unknown": "skip",
+      "required_evidence": [
+        "container.hint",
+        "container.sensitive_mount"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Verify the mount source and namespace, remove unnecessary host-style mounts and prefer read-only narrowly scoped mounts.",
+      "when": {
+        "all": [
+          {
+            "predicate": "container.hint",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "predicate": "container.sensitive_mount",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-015",
+      "version": "1",
+      "subject": "process",
+      "category": "isolation",
+      "title": "Dangerous root capabilities combined with weak isolation",
+      "description": "An initial-user-namespace root process has dangerous effective capabilities, disabled seccomp and disabled NoNewPrivs. Compromise is conditional.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "privilege.host_root",
+        "capability.dangerous",
+        "isolation.weak"
+      ],
+      "prerequisites": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "remediation": "Remove unnecessary capabilities and root execution, then apply tested NoNewPrivileges and syscall restrictions.",
+      "when": {
+        "all": [
+          {
+            "predicate": "privilege.host_root",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "predicate": "capability.dangerous",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "predicate": "isolation.weak",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    }
+  ]
+}
