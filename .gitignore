@@ -31,3 +31,11 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Local build outputs and private scan data
+/bin/
+/dist/
+/lasa-state/
+*.report.json
+*.report.html
+*.sarif
