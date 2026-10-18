@@ -80,7 +80,8 @@ case "$method $path" in
     # expected results per invocation; no API output includes private material.
     if [ -f "$MOCK_STATE/visibility-read" ]; then rm "$MOCK_STATE/visibility-read"; echo main; else touch "$MOCK_STATE/visibility-read"; echo public; fi;;
   'GET repos/tester/homebrew-lasa/keys') if [ -f "$MOCK_STATE/public-key" ]; then cat "$MOCK_STATE/public-key"; fi;;
-  'POST repos/tester/homebrew-lasa/keys') printf '%s\n' "$key" > "$MOCK_STATE/public-key";;
+  # GitHub returns the key material without the upload's optional comment.
+  'POST repos/tester/homebrew-lasa/keys') printf '%s\n' "$key" | awk '{print $1, $2}' > "$MOCK_STATE/public-key";;
   'GET repos/tester/homebrew-lasa/pages')
     if [ -f "$MOCK_STATE/pages" ]; then echo 'legacy main /'; else echo 'gh: Not Found (HTTP 404)' >&2; exit 1; fi;;
   'POST repos/tester/homebrew-lasa/pages') touch "$MOCK_STATE/pages";;
@@ -102,6 +103,20 @@ for name in APT_SIGNING_FINGERPRINT DISTRIBUTION_REPOSITORY DISTRIBUTION_BRANCH 
 run_bootstrap --configure-only
 [[ $(cat "$state/signing-fingerprint") == "$fingerprint" ]]
 [[ $(cat "$MOCK_STATE/public-key") == "$deploy" ]]
+# Different comments on the same key must also preserve the identity.
+printf '%s remote label with several words\n' "$deploy" > "$MOCK_STATE/public-key"
+run_bootstrap --configure-only
+[[ $(cat "$state/signing-fingerprint") == "$fingerprint" ]]
+[[ $(awk '{print $1, $2}' "$MOCK_STATE/public-key") == "$deploy" ]]
+# Real key differences still fail, without overwriting either identity.
+ssh-keygen -q -t ed25519 -N '' -C 'different key' -f "$temp/other-key"
+ssh-keygen -y -f "$temp/other-key" | awk '{print $1, $2}' > "$MOCK_STATE/public-key"
+different=$(cat "$MOCK_STATE/public-key")
+if run_bootstrap --configure-only > "$temp/rejection" 2>&1; then exit 1; fi
+grep -q 'key material differs' "$temp/rejection"
+[[ $(cat "$MOCK_STATE/public-key") == "$different" ]]
+[[ $(ssh-keygen -y -f "$state/deploy-key" | awk '{print $1, $2}') == "$deploy" ]]
+printf '%s\n' "$deploy" > "$MOCK_STATE/public-key"
 run_bootstrap
 test -f "$MOCK_STATE/tag"
 test -f "$MOCK_STATE/domain-configured"
@@ -117,4 +132,4 @@ mv "$temp/saved-fingerprint" "$state/signing-fingerprint"
 printf '\nchange\n' >> "$temp/source/Makefile"
 if run_bootstrap --configure-only > "$temp/rejection" 2>&1; then exit 1; fi
 grep -q 'uncommitted changes' "$temp/rejection"
-echo 'PASS: macOS bootstrap provisioning, tag/run orchestration and failed-run retries, repeat setup, stable real keys, missing-state and dirty-checkout rejection (external APIs mocked)'
+echo 'PASS: macOS bootstrap provisioning, comment-independent SSH identity, real key mismatch rejection, tag/run retries, stable keys, missing-state and dirty-checkout rejection (external APIs mocked)'
