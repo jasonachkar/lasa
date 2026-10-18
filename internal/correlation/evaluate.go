@@ -10,6 +10,13 @@ import (
 
 func Evaluate(s *domain.Snapshot, pack []rules.Rule) {
 	idx := rules.Index(s.Observations)
+	edgesBySubject := map[string][]domain.Edge{}
+	for _, edge := range s.Graph.Edges {
+		edgesBySubject[edge.From] = append(edgesBySubject[edge.From], edge)
+		if edge.To != edge.From {
+			edgesBySubject[edge.To] = append(edgesBySubject[edge.To], edge)
+		}
+	}
 	obsByID := map[string]domain.Observation{}
 	for _, o := range s.Observations {
 		obsByID[o.ID] = o
@@ -53,25 +60,54 @@ func Evaluate(s *domain.Snapshot, pack []rules.Rule) {
 			if r.Confidence == "medium" {
 				warnings = append(warnings, "Heuristic or indirect relationships require independent verification.")
 			}
-			refs := expand(result.Evidence, obsByID)
-			f := domain.Finding{ID: domain.Hash("lasa.finding/v1", s.Host.ID, r.ID, r.Version, n.StableID), RuleID: r.ID, RuleVersion: r.Version, Title: r.Title, Description: r.Description, Subject: n.ID, Subjects: []string{n.ID}, StableSubject: n.StableID, Severity: r.Severity, Confidence: r.Confidence, Exposure: ex, Evidence: refs, Prerequisites: r.Prerequisites, Warnings: warnings, Remediation: r.Remediation, Priority: score, ScoreVersion: scoring.Version, Factors: factors}
-			f.Path = domain.AttackPath{ID: domain.Hash(f.ID, "path"), Entities: []string{n.ID}, Evidence: refs, EntryConditions: r.Prerequisites, ConditionalStep: "If an attacker first gains control of this subject, the observed conditions may increase its potential impact.", PotentialImpact: r.Description, Uncertainties: warnings, Factors: factors}
-			for _, e := range s.Graph.Edges {
-				if e.From == n.ID && containsAll(refs, e.Evidence) {
-					f.Path.Edges = append(f.Path.Edges, e)
-					f.Path.Entities = append(f.Path.Entities, e.To)
+			scoringRefs := append([]string(nil), result.Evidence...)
+			addScoringEvidence := func(key string) {
+				for _, o := range idx[n.ID][key] {
+					scoringRefs = append(scoringRefs, o.ID)
 				}
 			}
+			if ex == domain.Confirmed {
+				addScoringEvidence("network.confirmed")
+			} else if ex == domain.Potential {
+				addScoringEvidence("network.potential")
+			}
+			if priv {
+				addScoringEvidence("privilege.host_root")
+			}
+			refs := expand(scoringRefs, obsByID)
+			f := domain.Finding{ID: domain.Hash("lasa.finding/v1", s.Host.ID, r.ID, r.Version, n.StableID), RuleID: r.ID, RuleVersion: r.Version, Title: r.Title, Description: r.Description, Subject: n.ID, Subjects: []string{n.ID}, StableSubject: n.StableID, Severity: r.Severity, Confidence: r.Confidence, Exposure: ex, Evidence: refs, Prerequisites: r.Prerequisites, Warnings: warnings, Remediation: r.Remediation, Priority: score, ScoreVersion: scoring.Version, Factors: factors}
+			f.Path = domain.AttackPath{ID: domain.Hash(f.ID, "path"), Entities: []string{n.ID}, Evidence: refs, EntryConditions: r.Prerequisites, ConditionalStep: "If an attacker first gains control of this subject, the observed conditions may increase its potential impact.", PotentialImpact: r.Description, Uncertainties: warnings, Factors: factors}
+			evidenceSet := map[string]bool{}
+			for _, id := range refs {
+				evidenceSet[id] = true
+			}
+			entities, edges, truncated := supportingGraph(n.ID, edgesBySubject, evidenceSet)
+			f.Path.Entities = entities
+			f.Path.Edges = edges
+			if truncated {
+				warning := "Supporting graph preview is bounded to 64 relationships; full observation references remain in the finding."
+				f.Warnings = append(f.Warnings, warning)
+				f.Path.Uncertainties = append(f.Path.Uncertainties, warning)
+			}
+
 			for _, c := range s.Coverage {
 				f.Coverage = append(f.Coverage, c.Collector)
 			}
 			if prev, ok := findings[f.ID]; ok {
+				if prev.Priority >= f.Priority {
+					f.Subject = prev.Subject
+					f.Priority = prev.Priority
+					f.Exposure = prev.Exposure
+					f.Factors = prev.Factors
+					f.Path.Factors = prev.Factors
+				}
 				f.Subjects = unique(append(prev.Subjects, f.Subjects...))
 				f.Path.Entities = unique(append(prev.Path.Entities, f.Path.Entities...))
 				f.Path.Edges = append(prev.Path.Edges, f.Path.Edges...)
 				f.Evidence = unique(append(prev.Evidence, f.Evidence...))
 				f.Path.Evidence = f.Evidence
 				f.Warnings = unique(append(prev.Warnings, f.Warnings...))
+				f.Path.Uncertainties = f.Warnings
 			}
 			findings[f.ID] = f
 		}
@@ -110,16 +146,4 @@ func unique(s []string) []string {
 		}
 	}
 	return out
-}
-func containsAll(all, sub []string) bool {
-	m := map[string]bool{}
-	for _, x := range all {
-		m[x] = true
-	}
-	for _, x := range sub {
-		if !m[x] {
-			return false
-		}
-	}
-	return true
 }

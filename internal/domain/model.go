@@ -3,8 +3,8 @@ package domain
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -305,14 +305,40 @@ type Batch struct {
 }
 
 func Hash(parts ...string) string {
-	b, _ := json.Marshal(parts)
-	h := sha256.Sum256(b)
+	var framed []byte
+	for _, part := range parts {
+		framed = binary.LittleEndian.AppendUint64(framed, uint64(len(part)))
+		framed = append(framed, part...)
+	}
+	h := sha256.Sum256(framed)
 	return hex.EncodeToString(h[:16])
 }
 func Fact(subject, key, value, source, collector string, state State, at time.Time) Observation {
 	return Observation{ID: Hash(subject, key, value, source, string(state)), Subject: subject, Key: key, Value: value, Source: source, Collector: collector, State: state, At: at}
 }
 func (s *Snapshot) Sort() {
+	sort.Slice(s.Interfaces, func(i, j int) bool { return s.Interfaces[i].ID < s.Interfaces[j].ID })
+	sort.Slice(s.Mounts, func(i, j int) bool { return s.Mounts[i].ID < s.Mounts[j].ID })
+	sort.Slice(s.Services, func(i, j int) bool {
+		return s.Services[i].ID+s.Services[i].Process < s.Services[j].ID+s.Services[j].Process
+	})
+	sort.Slice(s.Containers, func(i, j int) bool {
+		return s.Containers[i].ID+s.Containers[i].Process < s.Containers[j].ID+s.Containers[j].Process
+	})
+	sort.Slice(s.Controls, func(i, j int) bool { return s.Controls[i].ID < s.Controls[j].ID })
+	sort.Slice(s.Coverage, func(i, j int) bool { return s.Coverage[i].Collector < s.Coverage[j].Collector })
+	sort.Slice(s.Diagnostics, func(i, j int) bool {
+		a, b := s.Diagnostics[i], s.Diagnostics[j]
+		return a.Component+a.Target+a.Operation+a.Code+a.Cause < b.Component+b.Target+b.Operation+b.Code+b.Cause
+	})
+	sort.Slice(s.RuntimeEvents, func(i, j int) bool {
+		a, b := s.RuntimeEvents[i], s.RuntimeEvents[j]
+		if a.TimestampBootNS != b.TimestampBootNS {
+			return a.TimestampBootNS < b.TimestampBootNS
+		}
+		return a.ID < b.ID
+	})
+
 	sort.Slice(s.Processes, func(i, j int) bool { return s.Processes[i].ID < s.Processes[j].ID })
 	sort.Slice(s.Sockets, func(i, j int) bool { return s.Sockets[i].ID < s.Sockets[j].ID })
 	sort.Slice(s.Files, func(i, j int) bool { return s.Files[i].Path < s.Files[j].Path })

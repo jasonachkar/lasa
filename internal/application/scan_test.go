@@ -44,3 +44,12 @@ func TestOrchestrator(t *testing.T) {
 		t.Fatalf("%v", e)
 	}
 }
+func TestMissingProcIsFatalAndActionable(t *testing.T) {
+	c := config.Default()
+	c.Proc = t.TempDir()
+	_, e := Linux(c, nil)
+	var d domain.Diagnostic
+	if !errors.As(e, &d) || d.Code != "PROC_UNAVAILABLE" || d.Recoverable || d.Target == "" || d.Remediation == "" {
+		t.Fatalf("bad prerequisite error: %v", e)
+	}
+}

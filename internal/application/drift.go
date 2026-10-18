@@ -33,7 +33,7 @@ func Diff(old, now domain.Snapshot) (Drift, error) {
 		prev, ok := before[f.ID]
 		if !ok {
 			d.New = append(d.New, f)
-		} else if prev.Priority != f.Priority || prev.Severity != f.Severity || prev.Confidence != f.Confidence || prev.Exposure != f.Exposure || prev.Suppressed != f.Suppressed {
+		} else if prev.ScoreVersion != f.ScoreVersion || prev.Priority != f.Priority || prev.Severity != f.Severity || prev.Confidence != f.Confidence || prev.Exposure != f.Exposure || prev.Suppressed != f.Suppressed {
 			d.Changed = append(d.Changed, f)
 		} else {
 			d.Continuing = append(d.Continuing, f)

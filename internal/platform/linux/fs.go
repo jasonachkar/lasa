@@ -128,3 +128,12 @@ func (f FS) Executable(pid string) (string, uint64, uint64, error) {
 	name, e := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd))
 	return name, st.Ino, uint64(st.Dev), e
 }
+
+// Source names the concrete metadata source without exposing file contents.
+func (f FS) Source(p string) string { return filepath.Join(f.Root, p) }
+func Source(r Reader, p string) string {
+	if source, ok := r.(interface{ Source(string) string }); ok {
+		return source.Source(p)
+	}
+	return p
+}

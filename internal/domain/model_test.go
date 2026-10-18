@@ -12,3 +12,8 @@ func TestIdentityBoundaries(t *testing.T) {
 		t.Fatal("PID reuse collision")
 	}
 }
+func TestInvalidUTF8Identity(t *testing.T) {
+	if Hash(string([]byte{0xff})) == Hash(string([]byte{0xfe})) {
+		t.Fatal("distinct Linux byte names collapsed during identity framing")
+	}
+}

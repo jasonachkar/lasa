@@ -144,6 +144,10 @@ func prepare(c config.Config, path string) (application.Engine, error) {
 	}
 	engine, e := application.Linux(c, pack)
 	if e != nil {
+		var diagnostic domain.Diagnostic
+		if errors.As(e, &diagnostic) {
+			return engine, diagnostic
+		}
 		code := "HOST_UNSUPPORTED"
 		if c.Profile == "deep" && os.Geteuid() != 0 {
 			code = "PERMISSION_DENIED"

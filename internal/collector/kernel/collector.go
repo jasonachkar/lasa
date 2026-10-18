@@ -42,14 +42,14 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 		value := strings.TrimSpace(string(raw))
 		if e != nil {
 			state = domain.Unknown
-			b.Diagnostics = append(b.Diagnostics, diagnostics.New("kernel", "read_control", x.path, e))
+			b.Diagnostics = append(b.Diagnostics, diagnostics.New("kernel", "read_control", linux.Source(reader, x.path), e))
 			b.Coverage.Inconclusive++
 		} else {
 			b.Coverage.Successful++
 		}
 		id := domain.Hash(c.HostID, x.path)
-		b.Controls = append(b.Controls, domain.KernelControl{ID: id, Name: x.path, Value: value, State: state, Source: x.path})
-		b.Observations = append(b.Observations, domain.Fact(id, "control.value", value, x.path, "kernel", state, time.Now().UTC()))
+		b.Controls = append(b.Controls, domain.KernelControl{ID: id, Name: x.path, Value: value, State: state, Source: linux.Source(reader, x.path)})
+		b.Observations = append(b.Observations, domain.Fact(id, "control.value", value, linux.Source(reader, x.path), "kernel", state, time.Now().UTC()))
 	}
 	return
 }

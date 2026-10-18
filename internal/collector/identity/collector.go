@@ -59,13 +59,13 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 		path := strconv.Itoa(reps[ns]) + "/mountinfo"
 		raw, e := c.FS.Read(path)
 		if e != nil {
-			b.Diagnostics = append(b.Diagnostics, diagnostics.New("identity", "read", path, e))
+			b.Diagnostics = append(b.Diagnostics, diagnostics.New("identity", "read", linux.Source(c.FS, path), e))
 			b.Coverage.Inconclusive++
 			continue
 		}
 		mounts, e := ParseMounts(raw, ns)
 		if e != nil {
-			b.Diagnostics = append(b.Diagnostics, diagnostics.New("identity", "parse", path, e))
+			b.Diagnostics = append(b.Diagnostics, diagnostics.New("identity", "parse", linux.Source(c.FS, path), e))
 			b.Coverage.Inconclusive++
 			continue
 		}
@@ -77,7 +77,7 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 		}
 		b.Mounts = append(b.Mounts, mounts...)
 		for _, m := range mounts {
-			b.Observations = append(b.Observations, domain.Fact(m.ID, "mount.options", strings.Join(m.Options, ","), path, "identity", domain.Observed, time.Now().UTC()))
+			b.Observations = append(b.Observations, domain.Fact(m.ID, "mount.options", strings.Join(m.Options, ","), linux.Source(c.FS, path), "identity", domain.Observed, time.Now().UTC()))
 		}
 	}
 	return

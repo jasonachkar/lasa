@@ -1,11 +1,13 @@
 package application
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/jasonachkar/lasa/internal/collector"
 	sensor "github.com/jasonachkar/lasa/internal/collector/ebpf"
@@ -33,7 +35,28 @@ func Linux(c config.Config, pack []rules.Rule) (Engine, error) {
 	}
 	proc := linux.FS{Root: c.Proc, Limit: c.MaxRead}
 	sys := linux.FS{Root: "/sys", Limit: c.MaxRead}
+	selfStat := strconv.Itoa(os.Getpid()) + "/stat"
+	if _, err := proc.Read(selfStat); err != nil {
+		d := diagnostics.New("host", "read_procfs", linux.Source(proc, selfStat), err)
+		d.Code = "PROC_UNAVAILABLE"
+		d.Recoverable = false
+		if errors.Is(err, os.ErrPermission) {
+			d.Code = "PROC_RESTRICTED"
+		}
+		if errors.Is(err, syscall.ENOSYS) {
+			d.Code = "HOST_UNSUPPORTED"
+			d.Requirement = "Linux openat2 allowed by the kernel and syscall policy"
+			d.Remediation = "Use a supported Linux kernel and an authorized syscall policy that permits constrained metadata access."
+		}
+		return Engine{}, d
+	}
 	host, ds := hostInfo(proc, c.Profile)
+	if host.BootID == "" {
+		d := diagnostics.New("host", "identify_boot", linux.Source(proc, "sys/kernel/random/boot_id"), fmt.Errorf("boot identity is unavailable; reliable process execution identity cannot be established"))
+		d.Code = "PROC_UNAVAILABLE"
+		d.Recoverable = false
+		return Engine{}, d
+	}
 	e := Engine{Host: host, Rules: pack, Diagnostics: ds}
 	e.Stages = []Stage{func(*domain.Snapshot) []collector.Collector {
 		sources := []collector.Collector{process.Collector{FS: proc, Config: c, Host: host}, kernel.Collector{Proc: proc, Sys: sys, HostID: host.ID}}

@@ -40,3 +40,17 @@ func FuzzSocket(f *testing.F) {
 		_, _, _ = Endpoint(s, v)
 	})
 }
+func FuzzSocketTable(f *testing.F) {
+	f.Add("sl local_address rem_address st tx_queue rx tr tm retr uid timeout inode\n0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000 0 0 123\n", false)
+	f.Add("Num RefCount Protocol Flags Type St Inode Path\n1: 2 0 00010000 0001 01 123 /run/example.sock\n", true)
+	f.Fuzz(func(t *testing.T, s string, isUnix bool) {
+		if len(s) > 1<<20 {
+			return
+		}
+		if isUnix {
+			_, _ = ParseUnix([]byte(s), "n")
+		} else {
+			_, _ = ParseTable([]byte(s), "tcp", false, "n")
+		}
+	})
+}

@@ -35,10 +35,35 @@ func TestDecodeRejects(t *testing.T) {
 }
 func FuzzDecode(f *testing.F) {
 	f.Add("{}")
+	f.Add(`{"schema":"lasa.report/v1","scan_id":"scan","host":{"id":"host"},"observations":[{"id":"o","subject":"host","key":"test","state":"observed"}],"graph":{"nodes":[{"id":"host"}],"edges":[]}}`)
 	f.Fuzz(func(t *testing.T, s string) {
 		if len(s) > 1<<20 {
 			return
 		}
 		_, _ = Decode([]byte(s))
 	})
+}
+func TestInvalidByteEscaping(t *testing.T) {
+	if got := Safe(string([]byte{'a', 0xff, 27})); got != "a\\xff\\x1b" {
+		t.Fatalf("unsafe display %q", got)
+	}
+}
+func TestRejectsDanglingGraphAndFinding(t *testing.T) {
+	s := domain.Snapshot{Schema: domain.SchemaVersion, ScanID: "id", Host: domain.Host{ID: "h"}, Graph: domain.Graph{Nodes: []domain.Node{{ID: "h"}}}, Findings: []domain.Finding{{ID: "f", Subject: "missing"}}}
+	raw, e := Render(s, "json")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = Decode(raw); e == nil {
+		t.Fatal("dangling finding accepted")
+	}
+	s.Findings = nil
+	s.Graph.Edges = []domain.Edge{{From: "h", To: "missing", Evidence: []string{"o"}}}
+	raw, e = Render(s, "json")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = Decode(raw); e == nil {
+		t.Fatal("dangling graph accepted")
+	}
 }

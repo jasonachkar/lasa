@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jasonachkar/lasa/internal/collector"
 	"github.com/jasonachkar/lasa/internal/config"
@@ -136,6 +137,10 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 			b.Coverage.Inconclusive++
 		}
 
+		if !utf8.ValidString(f.Path) {
+			b.Diagnostics = append(b.Diagnostics, domain.Diagnostic{Code: "METADATA_ENCODING", Component: "filesystem", Operation: "encode_path", Target: strconv.QuoteToASCII(f.Path), Cause: "Non-UTF-8 path bytes; JSON display labels are lossy, while identifiers use original bytes.", Impact: "Use the quoted target for exact path identification; do not assume display labels are unique.", Remediation: "Inspect the quoted byte path using an appropriate native filesystem tool.", Recoverable: true})
+			b.Coverage.Inconclusive++
+		}
 		b.Files = append(b.Files, f)
 		b.Coverage.Successful++
 		at := time.Now().UTC()
@@ -146,6 +151,8 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 		fact("file.kind", f.Kind, domain.Observed)
 		fact("file.search_path", strconv.FormatBool(it.path == "/usr/bin" || it.path == "/usr/sbin" || it.path == "/usr/local/bin" || it.path == "/usr/local/sbin"), domain.Observed)
 		fact("file.owner_root", strconv.FormatBool(f.UID == 0), domain.Observed)
+		fact("file.executable", strconv.FormatBool(st.Mode&unix.S_IFMT == unix.S_IFREG && st.Mode&0111 != 0), domain.Observed)
+		fact("file.sgid", strconv.FormatBool(st.Mode&unix.S_ISGID != 0), domain.Observed)
 		fact("file.suid", strconv.FormatBool(st.Mode&unix.S_ISUID != 0), domain.Observed)
 		fact("file.capability", strconv.FormatBool(capEnabled), capState)
 		potentialWrite := (f.Mode&0002 != 0 || f.Mode&0020 != 0 && f.GID != 0) && f.ReadOnly != domain.Observed
@@ -190,11 +197,11 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 }
 func kind(path string, mode uint32) string {
 	switch {
-	case filepath.Base(path) == "sudoers" || strings.Contains(path, "/sudoers.d/"):
+	case mode&unix.S_IFMT == unix.S_IFREG && (filepath.Base(path) == "sudoers" || strings.Contains(path, "/sudoers.d/")):
 		return "sudoers"
-	case strings.HasSuffix(path, "authorized_keys") || strings.HasSuffix(path, "authorized_keys2"):
+	case mode&unix.S_IFMT == unix.S_IFREG && (strings.HasSuffix(path, "/authorized_keys") || strings.HasSuffix(path, "/authorized_keys2")):
 		return "authorized_keys"
-	case strings.Contains(path, "/systemd/") && (strings.HasSuffix(path, ".service") || strings.HasSuffix(path, ".conf")):
+	case mode&unix.S_IFMT == unix.S_IFREG && strings.Contains(path, "/systemd/") && (strings.HasSuffix(path, ".service") || strings.HasSuffix(path, ".conf")):
 		return "service_config"
 	case mode&unix.S_IFMT == unix.S_IFSOCK && (strings.HasSuffix(path, "/docker.sock") || strings.HasSuffix(path, "/containerd.sock") || strings.HasSuffix(path, "/crio.sock") || strings.HasSuffix(path, "/podman.sock")):
 		return "runtime_socket"

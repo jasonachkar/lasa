@@ -33,3 +33,29 @@ func TestFingerprintsAndEvidence(t *testing.T) {
 		}
 	}
 }
+func TestDedupKeepsHighestObservedRisk(t *testing.T) {
+	pack, e := rules.Load(bytes.NewReader(builtin.YAML))
+	if e != nil {
+		t.Fatal(e)
+	}
+	s := domain.Snapshot{Host: domain.Host{ID: "h"}, Complete: true, Graph: domain.Graph{Nodes: []domain.Node{{ID: "a", StableID: "same-service", Kind: "process"}, {ID: "z", StableID: "same-service", Kind: "process"}}}}
+	for _, id := range []string{"a", "z"} {
+		for _, key := range []string{"privilege.host_root", "isolation.weak", "network.potential"} {
+			value := "true"
+			if id == "z" && key == "network.potential" {
+				value = "false"
+			}
+			s.Observations = append(s.Observations, domain.Fact(id, key, value, "fixture", "test", domain.Observed, time.Unix(0, 0)))
+		}
+	}
+	Evaluate(&s, pack)
+	for _, f := range s.Findings {
+		if f.RuleID == "LASA-004" {
+			if f.Priority != 60 || f.Exposure != domain.Potential || len(f.Subjects) != 2 {
+				t.Fatalf("risk was lowered by instance iteration: %+v", f)
+			}
+			return
+		}
+	}
+	t.Fatal("expected grouped finding missing")
+}

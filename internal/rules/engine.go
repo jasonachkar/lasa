@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/jasonachkar/lasa/internal/domain"
 	"gopkg.in/yaml.v3"
@@ -42,7 +44,7 @@ type Pack struct {
 	Rules  []Rule `yaml:"rules" json:"rules"`
 }
 
-var registry = map[string]string{"network.potential": "bool", "network.confirmed": "bool", "network.management": "bool", "privilege.host_root": "bool", "capability.dangerous": "bool", "isolation.weak": "bool", "container.hint": "bool", "container.host_pid": "bool", "container.sensitive_mount": "bool", "file.owner_root": "bool", "file.suid": "bool", "file.capability": "bool", "file.write_candidate": "bool", "file.unsafe_parent": "bool", "file.privileged_execution": "bool", "file.acl_present": "bool", "file.readonly": "bool", "file.search_path": "bool", "file.kind": "string", "identity.euid": "number"}
+var registry = map[string]string{"network.potential": "bool", "network.confirmed": "bool", "network.management": "bool", "privilege.host_root": "bool", "capability.dangerous": "bool", "isolation.weak": "bool", "container.hint": "bool", "container.host_pid": "bool", "container.sensitive_mount": "bool", "file.executable": "bool", "file.sgid": "bool", "file.owner_root": "bool", "file.suid": "bool", "file.capability": "bool", "file.write_candidate": "bool", "file.unsafe_parent": "bool", "file.privileged_execution": "bool", "file.acl_present": "bool", "file.readonly": "bool", "file.search_path": "bool", "file.kind": "string", "identity.euid": "number"}
 
 func Load(r io.Reader) ([]Rule, error) {
 	raw, e := io.ReadAll(io.LimitReader(r, (1<<20)+1))
@@ -193,6 +195,10 @@ func validate(c Condition, depth int, count *int) error {
 			return fmt.Errorf("string operator must be eq/neq")
 		}
 	case "number":
+		number, err := strconv.ParseFloat(fmt.Sprint(c.Value), 64)
+		if err != nil || math.IsNaN(number) || math.IsInf(number, 0) || number < 0 || number > math.MaxUint32 || math.Trunc(number) != number {
+			return fmt.Errorf("%s requires an unsigned 32-bit credential value", c.Predicate)
+		}
 		switch c.Value.(type) {
 		case int, uint64, float64:
 		default:
@@ -259,20 +265,24 @@ func Evaluate(c Condition, subject string, idx EvidenceIndex) Result {
 	if len(list) > 0 {
 		var refs []string
 		unknown, na := false, false
+		var reasons []string
 		for _, child := range list {
 			r := Evaluate(child, subject, idx)
 			refs = append(refs, r.Evidence...)
 			if all && r.State == domain.NotObserved || !all && r.State == domain.Observed {
 				return Result{r.State, unique(refs), r.Reason}
 			}
+			if r.State == domain.Unknown || r.State == domain.NotApplicable {
+				reasons = append(reasons, r.Reason)
+			}
 			unknown = unknown || r.State == domain.Unknown
 			na = na || r.State == domain.NotApplicable
 		}
 		if unknown {
-			return Result{domain.Unknown, unique(refs), "required evidence is unavailable or conflicting"}
+			return Result{domain.Unknown, unique(refs), "unknown prerequisites: " + strings.Join(reasons, "; ")}
 		}
 		if na {
-			return Result{domain.NotApplicable, unique(refs), "condition is not applicable"}
+			return Result{domain.NotApplicable, unique(refs), "not applicable: " + strings.Join(reasons, "; ")}
 		}
 		if all {
 			return Result{domain.Observed, unique(refs), "all prerequisites observed"}
@@ -314,11 +324,11 @@ func Evaluate(c Condition, subject string, idx EvidenceIndex) Result {
 		matched = value == fmt.Sprint(c.Value)
 	case "number":
 		a, e := strconv.ParseFloat(value, 64)
-		if e != nil {
+		if e != nil || math.IsNaN(a) || math.IsInf(a, 0) || a < 0 || a > math.MaxUint32 || math.Trunc(a) != a {
 			return Result{State: domain.Unknown, Reason: "invalid numeric observation"}
 		}
 		b, e := strconv.ParseFloat(fmt.Sprint(c.Value), 64)
-		if e != nil {
+		if e != nil || math.IsNaN(b) || math.IsInf(b, 0) {
 			return Result{State: domain.Unknown, Reason: "invalid numeric operand"}
 		}
 		switch c.Op {

@@ -86,6 +86,7 @@ func (e Engine) Scan(parent context.Context, c config.Config) (domain.Snapshot, 
 		return a.Component+a.Target+a.Operation+a.Code < b.Component+b.Target+b.Operation+b.Code
 	})
 	s.Sort()
+	s.Completed = time.Now().UTC()
 	return s, nil
 }
 func merge(s *domain.Snapshot, b domain.Batch) {

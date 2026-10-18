@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/jasonachkar/lasa/internal/domain"
 )
@@ -19,9 +20,17 @@ const MaxInput = 64 << 20
 
 func Safe(s string) string {
 	var b strings.Builder
-	for _, r := range s {
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		if r == utf8.RuneError && size == 1 {
+			fmt.Fprintf(&b, "\\x%02x", s[0])
+			s = s[1:]
+			continue
+		}
+		s = s[size:]
 		if unicode.IsControl(r) || unicode.In(r, unicode.Cf) {
-			b.WriteString(strconv.QuoteRuneToASCII(r)[1 : len(strconv.QuoteRuneToASCII(r))-1])
+			quoted := strconv.QuoteRuneToASCII(r)
+			b.WriteString(quoted[1 : len(quoted)-1])
 		} else {
 			b.WriteRune(r)
 		}
@@ -32,7 +41,11 @@ func Render(s domain.Snapshot, format string) ([]byte, error) {
 	s.Sort()
 	switch format {
 	case "json":
-		return json.MarshalIndent(s, "", "  ")
+		raw, e := json.MarshalIndent(s, "", "  ")
+		if e == nil && len(raw) > MaxInput {
+			return nil, fmt.Errorf("report exceeds 64MiB export limit; narrow roots or lower collection budgets")
+		}
+		return raw, e
 	case "terminal":
 		return terminal(s), nil
 	case "html":
@@ -63,6 +76,21 @@ func Decode(raw []byte) (domain.Snapshot, error) {
 	if len(s.Observations) > 200000 || len(s.Graph.Edges) > 200000 || len(s.Findings) > 65536 {
 		return s, fmt.Errorf("report structural budget exceeded")
 	}
+	nodes := map[string]bool{}
+	for _, n := range s.Graph.Nodes {
+		if n.ID == "" || nodes[n.ID] {
+			return s, fmt.Errorf("empty or duplicate graph node %q", n.ID)
+		}
+		nodes[n.ID] = true
+	}
+	if len(s.Processes) > 65536 || len(s.Sockets) > 65536 || len(s.Mounts) > 32768 || len(s.Files) > 100000 || len(s.Evaluations) > 2000000 {
+		return s, fmt.Errorf("report entity budget exceeded")
+	}
+	for _, c := range s.Coverage {
+		if s.Complete && !c.Complete {
+			return s, fmt.Errorf("complete snapshot has incomplete collector coverage")
+		}
+	}
 	ids := map[string]bool{}
 	for _, o := range s.Observations {
 		if o.ID == "" || ids[o.ID] {
@@ -82,7 +110,40 @@ func Decode(raw []byte) (domain.Snapshot, error) {
 			}
 		}
 	}
+	findingIDs := map[string]bool{}
 	for _, f := range s.Findings {
+		if f.ID == "" || findingIDs[f.ID] || !nodes[f.Subject] {
+			return s, fmt.Errorf("invalid, duplicate, or missing-subject finding %q", f.ID)
+		}
+		findingIDs[f.ID] = true
+		if f.Priority < 0 || f.Priority > 100 {
+			return s, fmt.Errorf("invalid priority in finding %s", f.ID)
+		}
+		switch f.Severity {
+		case "critical", "high", "medium", "low", "informational":
+		default:
+			return s, fmt.Errorf("invalid severity in finding %s", f.ID)
+		}
+		switch f.Confidence {
+		case "confirmed", "high", "medium", "low", "unknown":
+		default:
+			return s, fmt.Errorf("invalid confidence in finding %s", f.ID)
+		}
+		switch f.Exposure {
+		case domain.Confirmed, domain.Potential, domain.Local, domain.UnknownExposure:
+		default:
+			return s, fmt.Errorf("invalid exposure in finding %s", f.ID)
+		}
+		for _, subject := range f.Subjects {
+			if !nodes[subject] {
+				return s, fmt.Errorf("finding references unknown affected subject %s", subject)
+			}
+		}
+		for _, id := range f.Path.Entities {
+			if !nodes[id] {
+				return s, fmt.Errorf("attack scenario references unknown entity %s", id)
+			}
+		}
 		for _, id := range f.Evidence {
 			if !ids[id] {
 				return s, fmt.Errorf("finding %s references missing evidence %s", f.ID, id)
@@ -90,6 +151,9 @@ func Decode(raw []byte) (domain.Snapshot, error) {
 		}
 	}
 	for _, e := range s.Graph.Edges {
+		if !nodes[e.From] || !nodes[e.To] {
+			return s, fmt.Errorf("graph edge references unknown endpoint")
+		}
 		if len(e.Evidence) == 0 {
 			return s, fmt.Errorf("graph edge missing provenance")
 		}

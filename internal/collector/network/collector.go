@@ -73,7 +73,7 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 				}
 			}
 			if e != nil {
-				d := diagnostics.New("network", "read", target, e)
+				d := diagnostics.New("network", "read", linux.Source(c.FS, target), e)
 				d.Code = "NETWORK_NAMESPACE_UNREADABLE"
 				b.Diagnostics = append(b.Diagnostics, d)
 				b.Coverage.Inconclusive++
@@ -87,7 +87,7 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 				sockets, e = ParseTable(raw, proto, len(table) == 4, ns)
 			}
 			if e != nil {
-				b.Diagnostics = append(b.Diagnostics, diagnostics.New("network", "parse", target, e))
+				b.Diagnostics = append(b.Diagnostics, diagnostics.New("network", "parse", linux.Source(c.FS, target), e))
 				b.Coverage.Inconclusive++
 				continue
 			}
@@ -96,7 +96,7 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 				s := &sockets[i]
 				s.Owners = owners[ns][s.Inode]
 				sort.Strings(s.Owners)
-				b.Observations = append(b.Observations, domain.Fact(s.ID, "socket.endpoint", fmt.Sprintf("%s:%d", s.Address, s.Port), target, "network", domain.Observed, time.Now().UTC()))
+				b.Observations = append(b.Observations, domain.Fact(s.ID, "socket.endpoint", fmt.Sprintf("%s:%d", s.Address, s.Port), linux.Source(c.FS, target), "network", domain.Observed, time.Now().UTC()))
 			}
 			if len(b.Sockets)+len(sockets) > 65536 {
 				b.Diagnostics = append(b.Diagnostics, diagnostics.Limit("network", "total sockets"))
@@ -131,11 +131,11 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 		b.Coverage.Attempted++
 		raw, e := c.FS.Read(strconv.Itoa(os.Getpid()) + "/" + name)
 		if e != nil {
-			b.Diagnostics = append(b.Diagnostics, diagnostics.New("network", "route_table", name, e))
+			b.Diagnostics = append(b.Diagnostics, diagnostics.New("network", "route_table", linux.Source(c.FS, strconv.Itoa(os.Getpid())+"/"+name), e))
 			b.Coverage.Inconclusive++
 		} else {
 			b.Coverage.Successful++
-			b.Observations = append(b.Observations, domain.Fact(c.Host.ID, "topology."+name, string(raw), "procfs "+name, "network", domain.Observed, time.Now().UTC()))
+			b.Observations = append(b.Observations, domain.Fact(c.Host.ID, "topology."+name, string(raw), linux.Source(c.FS, strconv.Itoa(os.Getpid())+"/"+name), "network", domain.Observed, time.Now().UTC()))
 		}
 	}
 	return

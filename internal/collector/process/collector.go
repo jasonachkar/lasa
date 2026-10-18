@@ -99,7 +99,7 @@ func (c Collector) one(ctx context.Context, pid int) domain.Batch {
 	prefix := strconv.Itoa(pid) + "/"
 	at := time.Now().UTC()
 	fail := func(op, p string, e error) {
-		d := diagnostics.New("process", op, prefix+p, e)
+		d := diagnostics.New("process", op, linux.Source(c.FS, prefix+p), e)
 		if os.IsNotExist(e) {
 			d.Code = "PROCESS_VANISHED"
 			d.Remediation = "Expected for short-lived processes; rerun to observe current state."
@@ -243,7 +243,12 @@ func (c Collector) one(ctx context.Context, pid int) domain.Batch {
 		return b
 	}
 	fact := func(key, value, source string, state domain.State) {
-		b.Observations = append(b.Observations, domain.Fact(p.ID, key, value, prefix+source, "process", state, at))
+		b.Observations = append(b.Observations, domain.Fact(p.ID, key, value, func() string {
+			if strings.Contains(source, " + ") {
+				return "process derivation: " + source
+			}
+			return linux.Source(c.FS, prefix+source)
+		}(), "process", state, at))
 	}
 	fact("process.identity", p.ID, "stat", domain.Observed)
 	fact("process.executable", p.Executable, "exe", state(p.Executable != ""))

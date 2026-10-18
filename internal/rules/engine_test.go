@@ -36,10 +36,20 @@ func TestThreeValuedLogic(t *testing.T) {
 }
 func FuzzLoad(f *testing.F) {
 	f.Add("schema: lasa.rules/v1\nrules: []")
+	f.Add(`{"schema":"lasa.rules/v1","rules":[{"id":"T","version":"1","category":"test","subject":"process","title":"test","description":"test","severity":"high","confidence":"medium","unknown":"skip","required_evidence":["identity.euid"],"prerequisites":["test"],"remediation":"test","when":{"predicate":"identity.euid","op":"eq","value":0}}]}`)
 	f.Fuzz(func(t *testing.T, s string) {
 		if len(s) > 1<<20 {
 			return
 		}
 		_, _ = Load(strings.NewReader(s))
 	})
+}
+func TestInvalidNumericEvidenceStaysUnknown(t *testing.T) {
+	condition := Condition{Predicate: "identity.euid", Op: "neq", Value: 0}
+	for _, value := range []string{"NaN", "+Inf", "-1", "1.5", "4294967296"} {
+		o := domain.Fact("p", "identity.euid", value, "fixture", "fixture", domain.Observed, time.Unix(0, 0))
+		if r := Evaluate(condition, "p", Index([]domain.Observation{o})); r.State != domain.Unknown {
+			t.Fatalf("%s matched malformed numeric evidence: %+v", value, r)
+		}
+	}
 }
