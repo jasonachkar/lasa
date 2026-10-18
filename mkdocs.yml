@@ -1,0 +1,65 @@
+site_name: LASA Documentation
+site_description: Use LASA to understand local Linux attack surface, collection scope, evidence, privacy and operational limits.
+site_url: https://lasa.secureobs.com/
+docs_dir: .build/public-docs
+site_dir: .build/docs-site
+strict: true
+theme:
+  name: material
+  font: false
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  palette:
+    - scheme: default
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+plugins:
+  - search
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.details
+  - pymdownx.superfences
+extra:
+  version:
+    provider: mike
+  generator: false
+extra_css:
+  - assets/site.css
+nav:
+  - Start here:
+      - Welcome: index.md
+      - Product guide: product-guide.md
+      - Install LASA: installation.md
+  - Use LASA:
+      - CLI reference: cli-reference.md
+      - Understand results: results.md
+      - Operate and deploy: operations.md
+      - Troubleshoot: troubleshooting.md
+  - Trust and scope:
+      - Collection, access and privacy: data-and-privacy.md
+      - Compatibility and limits: compatibility.md
+      - SecureObs and local exports: secureobs.md
+validation:
+  links:
+    not_found: warn
+    unrecognized_links: warn

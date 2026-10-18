@@ -128,7 +128,7 @@ The pinned BPF builder image's base manifest was resolved/pulled, but its packag
 
 ## Binary artifact checksums
 
-For the verified source/toolchain state:
+For the original scanner implementation state, before automatic version injection was added (historical hashes, not hashes of current release artifacts):
 
 ```text
 48a2bdf8367754ca609e4eabcd27225a72a0ca8eb39e98d4f2d45ef0f6b679f8  lasa-0.1.0-linux-amd64
@@ -138,6 +138,18 @@ For the verified source/toolchain state:
 `dist/` contains generated binaries, SBOMs, checksums and packaged notices and is ignored by Git. Local checksum equality does not prove independent-builder reproducibility or release signing. No remote tag, release or signature was created by this implementation.
 
 ## Scope limits and release gates
+
+### Package, automation and website validation (2026-10-18)
+
+The subsequent publishing change passed local Go formatting, vet, unit/integration/end-to-end and race tests, staticcheck, module verification and repeated AMD64/ARM64 builds with version injection. The vulnerability check used the same authoritative OSV snapshot identified above, with the same freshness limitation.
+
+Real DEB/archive builds for both architectures matched on repeated runs. Extracted binaries matched their inputs and the native binary reported the injected release version. An isolated real APT client accepted the generated signed repository and downloaded matching DEBs for both architectures; signature tampering was rejected. Same-version changed bytes, a lower publication version and an unexpected installer key were rejected. No package or trusted key was installed into the test machine.
+
+Strict MkDocs builds passed for ten customer pages with local search. Real two-version Mike deployments retained both documentation versions, advanced `latest`, and preserved the APT files, Homebrew formula, CNAME and `.nojekyll`. The build explicitly excludes maintainer documents. Semantic version tests covered initial, patch/minor/major, breaking footers, existing tags and annotated tags.
+
+Bootstrap tests used real RSA/SSH key generation with mocked GitHub boundaries, covering configuration, idempotency, tag/run orchestration, failed-run retries and missing-state/dirty-tree rejection. GoDaddy/Pages tests mocked external APIs and covered DNS creation/reuse, conflicts, HTTPS enforcement and API denial without leaking fixture credentials. ShellCheck and actionlint passed for the changed shell/workflow files. Native macOS execution is configured in CI but was not executed in this Linux cloud instance.
+
+Git reads and pushes work in this cloud environment; GitHub API requests returned proxy `Forbidden`, and no GoDaddy credentials were available. Therefore no new live signing environment, public distribution repository, custom DNS record, HTTPS certificate, release attestation or documentation deployment is claimed here. The Mac bootstrap performs those operations under owner authorization. Their live results and hosted CI results still need to be observed before advertising the URLs as available.
 
 1. Validate BPF load/attach and real exec/connect/bind/accept/unshare outcomes on representative authorized AMD64 and ARM64 Linux VMs. Include losses, backpressure, partial-hook failure and cleanup.
 2. Run native ARM64, hidepid, nested user/network/PID/mount namespace, custom-runtime and large-host tests. This instance cannot establish those compatibility claims.

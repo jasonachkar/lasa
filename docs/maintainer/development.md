@@ -58,6 +58,8 @@ The compiler and libbpf versions are explicit. Build-container regeneration was 
 
 ## CI
 
+See [publishing from a Mac](publishing.md) for the current automatic semantic-version, DEB/APT, Homebrew and MkDocs/Mike pipeline. Release versions are injected through `VERSION` into the Go binary; source builds default to `0.1.0-dev`. Use `VERSION=0.0.0 make packages` for local package verification, while the release workflows allocate production versions without editing source constants.
+
 `ci.yml` configures native AMD64 and ARM64 Linux runners for formatting, vetting, tests, race, staticcheck, dependency allowlist/checksum verification, vulnerability scanning, fuzz smoke and repeated-build comparison. It builds architecture-appropriate container images and exercises doctor/scan/report in a read-only no-capability container view. Another job regenerates BPF with the pinned builder.
 
 `privileged.yml` is manual, dedicated-runner-only and environment-gated. `release.yml` runs on version tags, checks that the tag agrees with the binary's version, builds/checks binaries, creates SBOMs/checksums, requests GitHub signed build provenance via OIDC and publishes release assets. Action references are pinned to commit IDs. Workflow configuration is not proof a remote CI/release was executed.

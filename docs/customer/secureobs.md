@@ -22,4 +22,4 @@ Validate size and schema before storage. Restrict nesting and array counts, reje
 
 For downstream code scanning integrations, SARIF exports logical runtime locations. GitHub repository views can have limited support for those locations; do not invent source-file coordinates to make a host finding appear inline.
 
-The maintainer [data model](../maintainer/data-model.md) documents field semantics and versioning. That implementation-level reference is separate from this operational integration contract.
+The public [report JSON schema](../../schemas/report-v1.schema.json) documents the exported field contract. Preserve schema versioning independently of the executable version.

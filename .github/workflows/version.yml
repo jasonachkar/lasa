@@ -1,0 +1,55 @@
+name: Automatic version and release
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'rules/**'
+      - 'schemas/**'
+      - 'bpf/**'
+      - 'deploy/**'
+      - 'scripts/**'
+      - 'Makefile'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/version.yml'
+permissions:
+  contents: read
+concurrency:
+  group: lasa-automatic-release
+  cancel-in-progress: false
+jobs:
+  version:
+    if: vars.DISTRIBUTION_REPOSITORY != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Allocate immutable semantic version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(bash scripts/next-version.sh "$GITHUB_SHA")
+          if git rev-parse "v$version" >/dev/null 2>&1; then
+            test "$(git rev-parse "v$version^{commit}")" = "$GITHUB_SHA"
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/v$version" -f "sha=$GITHUB_SHA" >/dev/null
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+  release:
+    needs: version
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    secrets: inherit
