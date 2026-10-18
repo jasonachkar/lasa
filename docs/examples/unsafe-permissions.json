@@ -1,0 +1,104 @@
+{
+  "example_context": "Actual scanner output from a deliberately writable local test fixture named sudoers, not a claim about active host sudoers configuration. This is an extracted example, not a complete report.",
+  "finding": {
+    "id": "6ef461e8cfa3a42b8664229e234fc12f",
+    "rule_id": "LASA-009",
+    "rule_version": "1",
+    "title": "Sudoers configuration has unsafe write metadata",
+    "description": "A sudoers configuration path has permissive write metadata. Sudo may reject insecure modes; LASA does not claim the file will be accepted.",
+    "subject": "d3db9298f3c4f8caa8290ba8fc1bc7bf",
+    "subjects": [
+      "d3db9298f3c4f8caa8290ba8fc1bc7bf"
+    ],
+    "stable_subject": "d3db9298f3c4f8caa8290ba8fc1bc7bf",
+    "severity": "high",
+    "confidence": "medium",
+    "exposure": "unknown",
+    "evidence": [
+      "b7c0affd53074e0ad2a420f10e9272cb",
+      "ea6838f86c755cc2ead32298b45bdabf"
+    ],
+    "prerequisites": [
+      "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+    ],
+    "warnings": [
+      "Conditional scenario: no vulnerability, successful compromise, or exploitation has been established.",
+      "Some scan checks were incomplete; consult coverage and diagnostics.",
+      "Write permission metadata is a candidate; ACLs, group membership, sticky bits, namespace mappings and mount/execution policy can change effective access.",
+      "Heuristic or indirect relationships require independent verification."
+    ],
+    "remediation": "Use root ownership and restrictive sudoers modes; validate configuration through the system sudoers administration workflow.",
+    "priority": 55,
+    "score_version": "lasa.priority/v1",
+    "factors": [
+      {
+        "name": "severity",
+        "contribution": 55,
+        "reason": "rule consequence class"
+      }
+    ],
+    "attack_path": {
+      "id": "7d8666177b3f310548c97bc3ce72c052",
+      "entities": [
+        "d3db9298f3c4f8caa8290ba8fc1bc7bf"
+      ],
+      "edges": null,
+      "evidence": [
+        "b7c0affd53074e0ad2a420f10e9272cb",
+        "ea6838f86c755cc2ead32298b45bdabf"
+      ],
+      "entry_conditions": [
+        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+      ],
+      "conditional_step": "If an attacker first gains control of this subject, the observed conditions may increase its potential impact.",
+      "potential_impact": "A sudoers configuration path has permissive write metadata. Sudo may reject insecure modes; LASA does not claim the file will be accepted.",
+      "uncertainties": [
+        "Conditional scenario: no vulnerability, successful compromise, or exploitation has been established.",
+        "Some scan checks were incomplete; consult coverage and diagnostics.",
+        "Write permission metadata is a candidate; ACLs, group membership, sticky bits, namespace mappings and mount/execution policy can change effective access.",
+        "Heuristic or indirect relationships require independent verification."
+      ],
+      "factors": [
+        {
+          "name": "severity",
+          "contribution": 55,
+          "reason": "rule consequence class"
+        }
+      ]
+    },
+    "coverage": [
+      "kernel",
+      "process",
+      "identity",
+      "network",
+      "filesystem"
+    ],
+    "suppressed": false
+  },
+  "observations": [
+    {
+      "id": "b7c0affd53074e0ad2a420f10e9272cb",
+      "subject": "d3db9298f3c4f8caa8290ba8fc1bc7bf",
+      "key": "file.kind",
+      "value": "sudoers",
+      "state": "observed",
+      "source": "/workspace/scratch/lasa-review/sudoers",
+      "collector": "filesystem",
+      "at": "2026-10-18T11:27:49.444741539Z",
+      "derived": false,
+      "redacted": false
+    },
+    {
+      "id": "ea6838f86c755cc2ead32298b45bdabf",
+      "subject": "d3db9298f3c4f8caa8290ba8fc1bc7bf",
+      "key": "file.write_candidate",
+      "value": "true",
+      "state": "observed",
+      "source": "/workspace/scratch/lasa-review/sudoers",
+      "collector": "filesystem",
+      "at": "2026-10-18T11:27:49.444741539Z",
+      "derived": false,
+      "redacted": false
+    }
+  ]
+}

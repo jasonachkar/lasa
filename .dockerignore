@@ -1,0 +1,5 @@
+.git
+bin
+*.report.json
+*.report.html
+lasa-state

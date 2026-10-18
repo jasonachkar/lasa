@@ -1,6 +1,6 @@
 # LASA implementation plan
 
-Status: implementation in progress. This document is for maintainers.
+Status: implementation and available local verification completed; privileged/runtime and broader VM release gates remain explicit in [verification](maintainer/verification.md). This document is for maintainers.
 
 ## Architecture and contracts
 

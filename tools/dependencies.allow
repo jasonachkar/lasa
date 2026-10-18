@@ -1,0 +1,6 @@
+github.com/cilium/ebpf
+github.com/jasonachkar/lasa
+github.com/spf13/cobra
+github.com/spf13/pflag
+golang.org/x/sys
+gopkg.in/yaml.v3

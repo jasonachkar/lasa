@@ -309,7 +309,8 @@
       "confidence": "medium",
       "unknown": "skip",
       "required_evidence": [
-        "file.suid"
+        "file.suid",
+        "file.executable"
       ],
       "prerequisites": [
         "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
@@ -317,6 +318,11 @@
       "remediation": "Remove unnecessary SUID and restrict file and ancestor permissions; verify sticky directories, nosuid/noexec, ACLs and inode identity.",
       "when": {
         "all": [
+          {
+            "predicate": "file.executable",
+            "op": "eq",
+            "value": true
+          },
           {
             "predicate": "file.suid",
             "op": "eq",
@@ -350,7 +356,8 @@
       "confidence": "medium",
       "unknown": "skip",
       "required_evidence": [
-        "file.capability"
+        "file.capability",
+        "file.executable"
       ],
       "prerequisites": [
         "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
@@ -358,6 +365,11 @@
       "remediation": "Restrict executable and directory permissions; remove unnecessary file capabilities and verify that the xattr has intended semantics.",
       "when": {
         "all": [
+          {
+            "predicate": "file.executable",
+            "op": "eq",
+            "value": true
+          },
           {
             "predicate": "file.capability",
             "op": "eq",
