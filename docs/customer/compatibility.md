@@ -8,7 +8,7 @@ LASA targets Linux AMD64 and ARM64 little-endian systems. Native macOS and Windo
 
 `openat2`, procfs, visible namespaces and permission-compatible metadata access are required for the intended static workflow. Kernels predating `openat2`, hardened syscall filters and procfs restrictions can prevent collection. No insecure path-following fallback is used. The scanner reports failures rather than pretending that a version string establishes compatibility.
 
-For exact executed distributions, kernel, architecture, tests and skipped checks, use the [verification record](../maintainer/verification.md). CI configuration is a plan for repeatable checks; an unexecuted CI job is not a verified compatibility claim.
+Static collection and report workflows were exercised on a Debian 13.6 AMD64 cloud host. Both target architectures have reproducible build checks. Privileged eBPF attachment/event delivery, the full host/container namespace matrix and live systemd deployment still require target-host validation. CI configuration is a plan for repeatable checks; an unexecuted CI job is not a verified compatibility claim.
 
 ## Capability matrix
 

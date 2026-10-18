@@ -1,16 +1,17 @@
 SHELL := /bin/sh
 GO ?= go
 GO_VERSION := 1.27.2
-VERSION := 0.1.0
+VERSION ?= 0.1.0-dev
 VULN_DB ?=
 BIN := bin/lasa
+LDFLAGS := -s -w -buildid= -X github.com/jasonachkar/lasa/internal/domain.Version=$(VERSION)
 export GOTOOLCHAIN := local
 
-.PHONY: all build test vet fmt lint vuln deps race check release-binaries reproducible tools bpf fuzz sbom clean
+.PHONY: all build test vet fmt lint vuln deps race check release-binaries reproducible tools bpf fuzz notices sbom packages print-version clean
 all: build
 build:
 	@mkdir -p bin
-	CGO_ENABLED=0 $(GO) build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o $(BIN) ./cmd/lasa
+	CGO_ENABLED=0 $(GO) build -trimpath -buildvcs=false -ldflags='$(LDFLAGS)' -o $(BIN) ./cmd/lasa
 test:
 	$(GO) test ./...
 race:
@@ -27,12 +28,12 @@ deps:
 	sh scripts/check-dependencies.sh
 check: build fmt vet test race lint deps vuln
 reproducible:
-	sh scripts/reproducible-build.sh
+	VERSION=$(VERSION) sh scripts/reproducible-build.sh
 release-binaries:
 	@mkdir -p dist
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o dist/lasa-$(VERSION)-linux-amd64 ./cmd/lasa
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o dist/lasa-$(VERSION)-linux-arm64 ./cmd/lasa
-	cd dist && sha256sum lasa-$(VERSION)-linux-* > SHA256SUMS
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -buildvcs=false -ldflags='$(LDFLAGS)' -o dist/lasa-$(VERSION)-linux-amd64 ./cmd/lasa
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -trimpath -buildvcs=false -ldflags='$(LDFLAGS)' -o dist/lasa-$(VERSION)-linux-arm64 ./cmd/lasa
+	cd dist && sha256sum lasa-$(VERSION)-linux-amd64 lasa-$(VERSION)-linux-arm64 > SHA256SUMS
 tools:
 	$(GO) install honnef.co/go/tools/cmd/staticcheck@v0.8.2
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@v1.9.0
@@ -53,5 +54,10 @@ notices:
 sbom: release-binaries notices
 	cyclonedx-gomod bin -json -std -version v$(VERSION) -output dist/lasa-amd64.cdx.json dist/lasa-$(VERSION)-linux-amd64
 	cyclonedx-gomod bin -json -std -version v$(VERSION) -output dist/lasa-arm64.cdx.json dist/lasa-$(VERSION)-linux-arm64
+packages: sbom
+	bash scripts/package-release.sh $(VERSION)
+	cd dist && sha256sum -- lasa-$(VERSION)-linux-amd64 lasa-$(VERSION)-linux-arm64 lasa_$(VERSION)_*.deb lasa-$(VERSION)-linux-*.tar.gz lasa-*.cdx.json > SHA256SUMS
+print-version:
+	@printf '%s\n' '$(VERSION)'
 clean:
 	rm -rf bin dist

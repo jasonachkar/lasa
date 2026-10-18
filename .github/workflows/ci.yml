@@ -6,6 +6,8 @@ permissions:
   contents: read
 jobs:
   checks:
+    env:
+      VERSION: '0.0.0'
     strategy:
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
@@ -20,9 +22,21 @@ jobs:
       - run: make tools
       - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - run: make check fuzz reproducible release-binaries sbom
+      - name: Package and signed repository integration
+        if: matrix.runner == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update -o APT::Update::Error-Mode=any
+          sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg gpgv shellcheck
+          make packages
+          bash test/distribution.sh
+          bash test/versioning.sh
+          bash test/domain.sh
+          bash test/bootstrap-distribution.sh
+          shellcheck scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-from-actions.sh scripts/publish-docs.sh scripts/install-apt-body.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh
       - name: Real container view smoke test
         run: |
-          if [ "$(uname -m)" = aarch64 ]; then binary=dist/lasa-0.1.0-linux-arm64; else binary=dist/lasa-0.1.0-linux-amd64; fi
+          version=$(make -s print-version)
+          if [ "$(uname -m)" = aarch64 ]; then binary="dist/lasa-$version-linux-arm64"; else binary="dist/lasa-$version-linux-amd64"; fi
           docker build --build-arg LASA_BINARY="$binary" -t lasa-ci -f deploy/container/Dockerfile .
           docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges lasa-ci doctor --format json
           docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges lasa-ci scan --profile container --format json > container-report.json
@@ -40,3 +54,15 @@ jobs:
         run: |
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e GOPATH=/tmp/go -v "$PWD:/src" -v "$(go env GOROOT):/opt/go:ro" lasa-bpf
           git diff --exit-code -- internal/collector/ebpf/sensor_bpfel.go internal/collector/ebpf/sensor_bpfel.o
+  macos-publishing-bootstrap:
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install key-generation tools
+        run: brew install gnupg jq
+      - name: Exercise setup with the macOS system Bash
+        run: |
+          /bin/bash test/bootstrap-distribution.sh
+          /bin/bash test/domain.sh
+          /bin/bash test/versioning.sh

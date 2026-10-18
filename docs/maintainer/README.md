@@ -17,6 +17,7 @@ These files describe implementation and engineering decisions. Keep them in your
 9. [Development and release](development.md): builds, tests, dependency policy and supply chain.
 10. [Verification record](verification.md): measured results, failures, skipped checks and release gates.
 11. [Distribution](distribution.md): existing licensing and documentation publication choices.
+12. [Publishing from a Mac](publishing.md): automated release setup, APT signing, Linux Homebrew, trust and recovery.
 
 ## Engineering invariants
 

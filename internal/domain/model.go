@@ -11,7 +11,9 @@ import (
 )
 
 const SchemaVersion = "lasa.report/v1"
-const Version = "0.1.0"
+
+// Version is injected by release builds. The default identifies source builds.
+var Version = "0.1.0-dev"
 
 type State string
 

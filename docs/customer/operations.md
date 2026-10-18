@@ -53,9 +53,9 @@ The examples are deployment starting points, not verified unit compatibility on 
 Build the architecture-matching binary, then the optional minimal image:
 
 ```sh
-make release-binaries
-docker build -f deploy/container/Dockerfile --build-arg LASA_BINARY=dist/lasa-0.1.0-linux-amd64 -t lasa:0.1.0 .
-docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges lasa:0.1.0
+make build
+docker build -f deploy/container/Dockerfile -t lasa:local .
+docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges lasa:local
 ```
 
 ARM64 hosts need the ARM64 binary. The scratch image has no shell or package manager and runs as UID 65532. Its default command declares a container view. Procfs and root filesystem content in that view differ substantially from the host; a useful container report can be partial.

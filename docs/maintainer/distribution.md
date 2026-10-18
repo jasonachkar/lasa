@@ -2,6 +2,8 @@
 
 [Maintainer index](README.md)
 
+For the implemented package pipeline, Mac bootstrap command, APT signing model, Linux Homebrew tap and recovery procedures, see [automated publishing](publishing.md).
+
 ## Existing license
 
 The repository arrived with an MIT license. This implementation preserves it. MIT allows commercial sale, but also permits recipients to inspect, modify, copy and redistribute licensed source subject to its terms. The implementation does not add a proprietary license, paid enforcement, license server, obfuscation or access restriction.

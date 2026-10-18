@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — publishing and customer website
+
+Automated semantic versions and immutable Linux releases, reproducible DEBs/archives for AMD64 and ARM64, signed APT metadata and checksum-pinned Linux Homebrew formula updates. A macOS-compatible bootstrap configures scoped deployment/signing keys, protected-environment secrets, repositories, GoDaddy DNS and GitHub Pages HTTPS.
+
+Added a customer-only MkDocs Material website targeting `lasa.secureobs.com`, with local search, collection/privacy/access documentation, installation/updates, CLI guidance and versioned Mike deployments. Live publishing still requires the owner's GitHub and GoDaddy authorization; native macOS/Windows scanning remains unsupported.
+
 ## 0.1.0 — initial implementation
 
 Local bounded Linux process/socket/identity/filesystem/kernel metadata collection, provenance graph, strict typed local rules, conditional correlation and transparent prioritization. Fifteen builtin definitions include explicit unknown behavior; confirmed external exposure has no fabricated static source.
