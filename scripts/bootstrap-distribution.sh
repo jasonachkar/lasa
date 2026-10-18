@@ -154,10 +154,12 @@ if [ ! -f "$state/deploy-key" ]; then
   ssh-keygen -q -t ed25519 -N '' -C "LASA publisher $repo" -f "$state/deploy-key"
 fi
 chmod 0600 "$state/deploy-key"
-public_key=$(ssh-keygen -y -f "$state/deploy-key")
-existing_key=$(gh api --paginate "repos/$distribution/keys" --jq '.[] | select(.title=="LASA distribution publisher") | .key')
+# SSH comments are labels, not key identity. OpenSSH may emit a multiword
+# comment, while GitHub may omit it; compare only algorithm and key data.
+public_key=$(ssh-keygen -y -f "$state/deploy-key" | awk '{print $1, $2}')
+existing_key=$(gh api --paginate "repos/$distribution/keys" --jq '.[] | select(.title=="LASA distribution publisher") | .key' | awk 'NF {print $1, $2}')
 if [ -n "$existing_key" ]; then
-  [[ ${existing_key% *} == "$public_key" || $existing_key == "$public_key" ]] || die 'The distribution deploy key differs from local state. Restore the original key; no existing key was revoked.'
+  [[ $existing_key == "$public_key" ]] || die 'The distribution deploy key material differs from local state (SSH comments ignored). Restore the original key; no existing key was revoked.'
 else
   gh api --method POST "repos/$distribution/keys" -f title='LASA distribution publisher' -f key="$public_key" -F read_only=false >/dev/null
 fi
