@@ -139,6 +139,8 @@ For a new record, provide `GODADDY_API_KEY` and `GODADDY_API_SECRET` in the loca
 
 Credentials are used through a temporary `0600` header file inside a private directory, deleted on exit, and never stored in either repository or Actions. GitHub account authorization is independently needed for Pages configuration. The script associates the domain with Pages and waits up to 30 minutes for GitHub's certificate, then enables HTTPS enforcement. DNS propagation/certificate issuance can outlast that window; rerunning the same bootstrap retries without moving a tag or changing signing identity. No TLS checks are disabled. `--configure-only` can prepare the repositories/keys before domain access is available, but does not publish the requested custom-domain site.
 
+The certificate wait prints GitHub's state/description on state changes and at least once per minute, plus GitHub DNS health and local TLS errors. It reports certificate authority failures immediately. The API's certificate metadata is optional: when it is absent, a successful hostname/CA-verified TLS handshake plus accepted HTTPS enforcement still establishes readiness. No certificate verification is disabled. Reruns reuse an already-configured Pages domain and HTTPS setting, avoiding unnecessary configuration writes while issuance is pending. For a read-only live status check, run `gh api repos/jasonachkar/homebrew-lasa/pages --jq '{domain:.cname,status:.status,certificate:.https_certificate,https_enforced:.https_enforced}'` in another terminal; it prints no credentials. `/pages/health` may initially return an empty result while its asynchronous check is pending; that is not a successful DNS verdict.
+
 To develop the site locally:
 
 ```bash

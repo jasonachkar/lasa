@@ -52,20 +52,62 @@ if [[ $current != "$target" ]]; then
 fi
 pages_domain=$(gh api "repos/$distribution/pages" --jq '.cname // ""')
 [[ -z $pages_domain || $pages_domain == "$domain" ]] || fail "Pages already uses $pages_domain; it was not changed."
-gh api --method PUT "repos/$distribution/pages" -f "cname=$domain" >/dev/null
+if [ -z "$pages_domain" ]; then
+  gh api --method PUT "repos/$distribution/pages" -f "cname=$domain" >/dev/null
+else
+  echo "Reusing the existing Pages domain: $domain"
+fi
 echo "DNS record configured: $domain -> $target. Waiting for GitHub's HTTPS certificate."
+wait_started=$SECONDS
+previous_state=
+dns_details='No DNS health result is available yet.'
 for ((attempt=0; attempt<120; attempt++)); do
-  state=$(gh api "repos/$distribution/pages" --jq '.https_certificate.state // "pending"')
-  if [[ $state == approved ]]; then
-    gh api --method PUT "repos/$distribution/pages" -F https_enforced=true >/dev/null
-    echo "HTTPS enabled for https://$domain"
-    exit 0
+  certificate=$(gh api "repos/$distribution/pages" --jq '{certificate:.https_certificate,https_enforced:.https_enforced}')
+  state=$(jq -r '.certificate.state // "pending"' <<< "$certificate")
+  details=$(jq -r '.certificate.description // "GitHub has not provided a certificate description."' <<< "$certificate")
+  if [[ $state != "$previous_state" ]] || (( attempt % 4 == 0 )); then
+    printf 'Certificate status: %s (%s seconds elapsed; 30-minute polling window). %s\n' "$state" "$((SECONDS-wait_started))" "$details"
   fi
+  previous_state=$state
   case "$state" in
-    errored|bad_authz|certificate_revoked)
-      details=$(gh api "repos/$distribution/pages" --jq '.https_certificate.description // "Check DNS and domain authorization"')
+    errored|bad_authz|authorization_revoked|certificate_revoked)
       fail "GitHub certificate issuance failed ($state): $details";;
   esac
+  # Certificate metadata is optional in GitHub's API. A verified TLS handshake
+  # also proves readiness; never wait indefinitely just because that field is null.
+  if [[ $state == approved ]] || (( attempt % 4 == 0 )); then
+    if curl --proto '=https' --tlsv1.2 --connect-timeout 5 --max-time 10 --silent --show-error --head --output /dev/null "https://$domain/" 2> "$temp/tls-error"; then
+      if [[ $(jq -r '.https_enforced' <<< "$certificate") == true ]]; then
+        echo "HTTPS is already enabled and its certificate verifies for https://$domain"
+        exit 0
+      fi
+      if gh api --method PUT "repos/$distribution/pages" -F https_enforced=true > /dev/null 2> "$temp/enforce-error"; then
+        echo "HTTPS enabled and its certificate verified for https://$domain"
+        exit 0
+      elif grep -q 'HTTP 422' "$temp/enforce-error"; then
+        printf 'TLS verifies, but GitHub is not yet allowing HTTPS enforcement: %s\n' "$(cat "$temp/enforce-error")"
+      else
+        cat "$temp/enforce-error" >&2
+        fail 'GitHub rejected HTTPS enforcement; the existing domain and keys were preserved.'
+      fi
+    else
+      printf 'HTTPS certificate is not ready from this machine: %s\n' "$(cat "$temp/tls-error")"
+    fi
+  fi
+  if (( attempt % 4 == 0 )); then
+    if gh api "repos/$distribution/pages/health" > "$temp/health.json" 2> "$temp/health-error"; then
+      if jq -e '.domain | type=="object"' "$temp/health.json" >/dev/null 2>&1; then
+        dns_details=$(jq -r '.domain | "resolves=\(.dns_resolves), valid=\(.is_valid), HTTPS eligible=\(.is_https_eligible). \(.reason // "No DNS error reported.") \(.https_error // "")"' "$temp/health.json")
+        printf 'GitHub DNS health: %s\n' "$dns_details"
+        caa_error=$(jq -r '.domain.caa_error // empty' "$temp/health.json")
+        [ -z "$caa_error" ] || fail "GitHub reports a CAA policy error for $domain: $caa_error. Existing DNS security policies were not changed."
+      else
+        echo 'GitHub DNS health check is still pending.'
+      fi
+    else
+      printf 'GitHub DNS health check is unavailable: %s\n' "$(cat "$temp/health-error")" >&2
+    fi
+  fi
   sleep 15
 done
-fail "DNS/Pages are configured, but GitHub has not issued the HTTPS certificate within 30 minutes (state: $state). Rerun bootstrap after DNS propagation; no TLS verification was bypassed. Check domain ownership/Pages availability if issuance remains pending."
+fail "DNS/Pages are configured, but GitHub has not issued the HTTPS certificate within the 30-minute polling window (state: $state). Last DNS health: $dns_details. Rerun bootstrap after resolving the reported cause; no TLS verification was bypassed."
