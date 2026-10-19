@@ -53,6 +53,28 @@ assert set(versions) == {'0.1.0', '0.2.0'}
 assert versions['0.2.0']['aliases'] == ['latest']
 assert not versions['0.1.0']['aliases']
 PY
+# Preview updates must not move a published stable alias backwards.
+test "$(python scripts/check-docs-version.py preview "$temp/versions.json")" = preview
+printf '[]\n' > "$temp/empty.json"
+test "$(python scripts/check-docs-version.py preview "$temp/empty.json")" = latest
+printf '[{"version":"preview","aliases":["latest"]}]\n' > "$temp/preview.json"
+test "$(python scripts/check-docs-version.py 0.1.0 "$temp/preview.json")" = latest
+LASA_DOCS_PREVIEW=1 python scripts/prepare-docs.py
+(
+  cd "$temp/second"
+  mike deploy -F "$root/mkdocs.yml" -b pages -r origin --alias-type redirect -u preview
+  git show pages:versions.json > "$temp/versions.json"
+  git show pages:preview/index.html | grep -q 'Unreleased preview'
+  git show pages:0.2.0/index.html > "$temp/stable.html"
+  if grep -q 'Unreleased preview' "$temp/stable.html"; then exit 1; fi
+)
+python - "$temp/versions.json" <<'PYTEST'
+import json, sys
+versions = {item['version']: item for item in json.load(open(sys.argv[1]))}
+assert versions['0.2.0']['aliases'] == ['latest']
+assert not versions['preview']['aliases']
+PYTEST
+python scripts/prepare-docs.py
 python scripts/check-docs-version.py 0.2.0 "$temp/versions.json"
 if python scripts/check-docs-version.py 0.1.0 "$temp/versions.json" > "$temp/error" 2>&1; then exit 1; fi
 grep -q 'Refusing to roll back documentation' "$temp/error"

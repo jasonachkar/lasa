@@ -40,3 +40,6 @@ go.work.sum
 *.report.json
 *.report.html
 *.sarif
+
+# Python helper caches
+__pycache__/

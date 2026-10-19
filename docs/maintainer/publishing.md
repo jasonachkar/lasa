@@ -2,6 +2,10 @@
 
 [Maintainer index](README.md) · [Licensing](distribution.md) · [Customer installation](../customer/installation.md)
 
+## GitHub Actions quota exhausted
+
+Use [Azure publishing and website recovery](azure.md). `bash scripts/bootstrap-azure.sh` automates the private Azure project and pipeline setup for `jasonachkardiab`. `bash scripts/publish-docs-local.sh` immediately publishes MkDocs from your Mac without source Actions minutes. Both reuse the existing signing/deploy state; do not reset keys.
+
 ## One command
 
 Run this from a clean checkout containing the publishing changes, after its commit has been pushed:

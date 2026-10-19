@@ -49,8 +49,8 @@ A finding is a conditional risk assessment with supporting evidence. It is not p
 
 ## Packages and documentation versions
 
-Releases supply Linux AMD64/ARM64 binaries, `.deb` packages, archives, checksums, SBOMs and build attestations. APT verifies signed repository metadata and package hashes; the Homebrew tap pins archive checksums. See [installation](installation.md) for download verification and updates.
+Releases supply Linux AMD64/ARM64 binaries, `.deb` packages, archives, checksums, SBOMs and provenance verification. APT verifies signed repository metadata and package hashes; the Homebrew tap pins archive checksums. See [installation](installation.md) for download verification and updates.
 
-The version selector keeps documentation for published releases. `latest` follows the newest release; report schema versions are separate from executable versions. Choose the documentation matching `lasa version` when operating an older installation.
+The version selector keeps documentation for published releases and an explicitly labelled unreleased `preview`. Before the first release, the site opens the preview; installation examples may describe packages that are not available yet. `latest` follows the newest release; report schema versions are separate from executable versions. Choose the documentation matching `lasa version` when operating an older installation.
 
 [Website third-party notices](assets/licenses/NOTICE.txt) cover the documentation tools and theme. Scanner dependency notices accompany release packages.

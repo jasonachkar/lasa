@@ -3,6 +3,7 @@
 from pathlib import Path
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 
@@ -21,6 +22,9 @@ for source in sorted((root / "docs/customer").glob("*.md")):
     (destination / source.name).write_text(text)
 for name, source in (("systemd", root / "deploy/systemd"), ("schemas", root / "schemas")):
     shutil.copytree(source, destination / "assets" / name)
+if os.environ.get("LASA_DOCS_PREVIEW") == "1":
+    for page in destination.glob("*.md"):
+        page.write_text('!!! warning "Unreleased preview"\n    This documentation describes development code. Packages may not yet be available. Select a numbered release for installation and production use.\n\n' + page.read_text())
 digest = hashlib.sha256()
 for file in sorted(destination.rglob("*")):
     if file.is_file():

@@ -1,0 +1,73 @@
+# Bootstrap with: bash scripts/bootstrap-azure.sh (on the owner's Mac).
+trigger:
+  batch: 'true'
+  branches:
+    include: [main]
+pr: none
+pool:
+  vmImage: ubuntu-24.04
+# A stage lock serializes trusted publishing runs, including manual queues.
+stages:
+  - stage: Publishing
+    lockBehavior: sequential
+    jobs:
+      - job: Publish
+        displayName: Verify, version and publish LASA
+        timeoutInMinutes: '120'
+        steps:
+          - checkout: self
+            clean: 'true'
+            fetchDepth: '0'
+            fetchTags: 'true'
+            persistCredentials: 'false'
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.12'
+          - bash: |
+              set -euo pipefail
+              python -m pip install -r requirements-docs.txt
+              bash test/docs.sh
+              bash scripts/publish-docs.sh preview
+            displayName: Publish customer documentation independently of packages
+            env:
+              GH_TOKEN: $(GH_TOKEN)
+              DISTRIBUTION_REPOSITORY: $(DISTRIBUTION_REPOSITORY)
+              DISTRIBUTION_BRANCH: $(DISTRIBUTION_BRANCH)
+              DISTRIBUTION_DEPLOY_KEY: $(DISTRIBUTION_DEPLOY_KEY)
+              DOCS_SITE_URL: $(DOCS_SITE_URL)
+          - task: GoTool@0
+            inputs:
+              version: '1.27.2'
+          - bash: |
+              set -euo pipefail
+              sudo apt-get update -o APT::Update::Error-Mode=any
+              sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg gpgv jq shellcheck
+              make tools
+              export PATH="$(go env GOPATH)/bin:$PATH"
+              export VERSION=0.0.0
+              make check fuzz reproducible packages
+              python -m unittest discover -s test -p 'test_azure.py'
+              bash test/bootstrap-distribution.sh
+              bash test/versioning.sh
+              bash test/domain.sh
+              bash test/release-provenance.sh
+              bash test/distribution.sh
+              shellcheck scripts/*.sh test/*.sh
+            displayName: Linux verification and distribution integration tests
+          - bash: |
+              set -euo pipefail
+              export PATH="$(go env GOPATH)/bin:$PATH"
+              bash scripts/release-from-azure.sh
+            displayName: Publish immutable signed release and matching documentation
+            condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+            env:
+              GH_TOKEN: $(GH_TOKEN)
+              GITHUB_REPOSITORY: jasonachkar/lasa
+              RUNNER_TEMP: $(Agent.TempDirectory)
+              APT_SIGNING_KEY: $(APT_SIGNING_KEY)
+              APT_SIGNING_FINGERPRINT: $(APT_SIGNING_FINGERPRINT)
+              DISTRIBUTION_REPOSITORY: $(DISTRIBUTION_REPOSITORY)
+              DISTRIBUTION_BRANCH: $(DISTRIBUTION_BRANCH)
+              DISTRIBUTION_DEPLOY_KEY: $(DISTRIBUTION_DEPLOY_KEY)
+              APT_REPOSITORY_URL: $(APT_REPOSITORY_URL)
+              DOCS_SITE_URL: $(DOCS_SITE_URL)

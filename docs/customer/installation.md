@@ -54,7 +54,15 @@ lasa doctor
 lasa scan
 ```
 
-This command installs the binary; the scanner itself never invokes sudo. Do not make the binary SUID or assign broad file capabilities to it. If release assets are published, verify their checksums and GitHub build attestation before installation. Release signing configuration in the repository is not evidence that an unpublished binary has been signed.
+This command installs the binary; the scanner itself never invokes sudo. Do not make the binary SUID or assign broad file capabilities to it. If release assets are published, verify their checksums and release provenance before installation. Release signing configuration in the repository is not evidence that an unpublished binary has been signed.
+
+## Verify release provenance
+
+GitHub Actions releases carry a GitHub build attestation. Verify the downloaded checksum manifest using `gh attestation verify SHA256SUMS --repo jasonachkar/lasa`, then run `sha256sum --strict -c SHA256SUMS` in the directory containing all listed assets.
+
+Azure releases instead provide `SHA256SUMS.asc` and `release-signing-key.asc`. They use an OpenPGP signature by the APT signing key; this is not a GitHub OIDC build attestation. Import the public key into a dedicated verification keyring, confirm its full primary fingerprint against your organization's trusted LASA signing fingerprint, verify `gpg --verify SHA256SUMS.asc SHA256SUMS`, and check the manifest hashes before installing. A key downloaded alongside a binary is not independently trusted. A valid signature proves control of the signing key, not that the builder was uncompromised.
+
+APT installation verifies the signed repository metadata and package hashes automatically. Homebrew checks the archive hash pinned in its formula. Release provenance verification is an additional check for direct downloads.
 
 ## First private report
 

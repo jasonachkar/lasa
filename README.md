@@ -57,6 +57,7 @@ These documents explain the product's behavior and operational contract without 
 - [Verification and production readiness](docs/maintainer/verification.md)
 - [Licensing and distribution](docs/maintainer/distribution.md)
 - [Automated APT and Homebrew publishing from a Mac](docs/maintainer/publishing.md)
+- [Azure pipeline, one-command Mac setup and direct website recovery](docs/maintainer/azure.md)
 
 ## Commands
 

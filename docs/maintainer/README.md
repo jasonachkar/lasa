@@ -24,3 +24,5 @@ These files describe implementation and engineering decisions. Keep them in your
 Unknown is never evidence of a secure state. Capability scope must precede host-privilege interpretation. Socket binding does not prove internet reachability. Metadata permission candidates do not become effective `CAN_WRITE` claims. Every finding's supporting relationships need observation references. A rule never executes arbitrary expressions or code. Optional sensor failure must stay visible. Report persistence is private, atomic and local. Successful compilation is not privileged runtime validation.
 
 Every exported contract has its own version. Keep customer-facing descriptions accurate as implementation changes. Changes to predicates, fingerprint semantics, report fields and coverage/resolution policy need tests and explicit compatibility review.
+
+- [Azure publishing and direct website recovery](azure.md)

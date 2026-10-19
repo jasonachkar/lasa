@@ -2,7 +2,7 @@
 set -euo pipefail
 umask 077
 trap 'printf "Package publication failed at line %s. See the preceding command error.\n" "$LINENO" >&2' ERR
-: "${RUNNER_TEMP:?Run this script in GitHub Actions}"
+: "${RUNNER_TEMP:?Missing runner temporary directory}"
 : "${RELEASE_TAG:?Missing release tag from workflow}"
 : "${GITHUB_REPOSITORY:?Missing source repository from workflow}"
 : "${DISTRIBUTION_REPOSITORY:?Run the distribution bootstrap first}"
@@ -30,8 +30,7 @@ export GIT_SSH_COMMAND
 git clone --single-branch --branch "$DISTRIBUTION_BRANCH" "git@github.com:$DISTRIBUTION_REPOSITORY.git" "$temp/site"
 mkdir -p "$temp/assets"
 gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$temp/assets"
-(cd "$temp/assets" && sha256sum --strict -c SHA256SUMS)
-gh attestation verify "$temp/assets/SHA256SUMS" --repo "$GITHUB_REPOSITORY"
+bash scripts/verify-release-assets.sh "$temp/assets" "${RELEASE_PROVENANCE:-github}"
 bash scripts/publish-distribution.sh "$temp/site" "$temp/assets" "${RELEASE_TAG#v}" "$GITHUB_REPOSITORY" "$APT_REPOSITORY_URL"
 git -C "$temp/site" config user.name 'LASA release automation'
 git -C "$temp/site" config user.email '41898282+github-actions[bot]@users.noreply.github.com'

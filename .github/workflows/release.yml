@@ -11,6 +11,7 @@ permissions:
   contents: read
 jobs:
   release:
+    if: vars.PUBLISHING_PROVIDER != 'azure'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     environment: release
@@ -117,7 +118,7 @@ jobs:
           APT_REPOSITORY_URL: ${{ vars.APT_REPOSITORY_URL }}
         run: bash scripts/publish-from-actions.sh
   docs:
-    needs: [release, distribution]
+    needs: release
     uses: ./.github/workflows/docs.yml
     with:
       version: ${{ needs.release.outputs.version }}
