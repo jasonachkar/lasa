@@ -53,29 +53,43 @@ assert set(versions) == {'0.1.0', '0.2.0'}
 assert versions['0.2.0']['aliases'] == ['latest']
 assert not versions['0.1.0']['aliases']
 PY
-# Preview updates must not move a published stable alias backwards.
-test "$(python scripts/check-docs-version.py preview "$temp/versions.json")" = preview
+# Current product docs refresh the default site without losing release archives.
+test "$(python scripts/check-docs-version.py current "$temp/versions.json")" = latest
 printf '[]\n' > "$temp/empty.json"
-test "$(python scripts/check-docs-version.py preview "$temp/empty.json")" = latest
-printf '[{"version":"preview","aliases":["latest"]}]\n' > "$temp/preview.json"
-test "$(python scripts/check-docs-version.py 0.1.0 "$temp/preview.json")" = latest
+test "$(python scripts/check-docs-version.py current "$temp/empty.json")" = latest
+# Previously deployed channel metadata remains readable during migration.
+printf '[{"version":"preview","aliases":["latest"]}]\n' > "$temp/legacy.json"
+test "$(python scripts/check-docs-version.py current "$temp/legacy.json")" = latest
+test "$(python scripts/check-docs-version.py 0.1.0 "$temp/legacy.json")" = latest
+# An old environment setting cannot inject the removed product warning.
 LASA_DOCS_PREVIEW=1 python scripts/prepare-docs.py
 (
   cd "$temp/second"
+  # Reproduce an existing deployment with the former named channel.
   mike deploy -F "$root/mkdocs.yml" -b pages -r origin --alias-type redirect -u preview
+  mike delete -F "$root/mkdocs.yml" -b pages -r origin preview
+  mike deploy -F "$root/mkdocs.yml" -b pages -r origin --alias-type redirect -u --title 'Current documentation' current latest
+  mike alias -F "$root/mkdocs.yml" -b pages -r origin --alias-type redirect -u current preview
+  mike set-default -F "$root/mkdocs.yml" -b pages -r origin latest
   git show pages:versions.json > "$temp/versions.json"
-  git show pages:preview/index.html | grep -q 'Unreleased preview'
-  git show pages:0.2.0/index.html > "$temp/stable.html"
-  if grep -q 'Unreleased preview' "$temp/stable.html"; then exit 1; fi
+  git show pages:current/index.html > "$temp/current.html"
+  if grep -Eq 'Unreleased preview|This documentation describes development code|Packages may not yet be available' "$temp/current.html"; then exit 1; fi
+  git show pages:preview/installation/index.html | grep -q 'current/installation/'
+  git cat-file -e pages:0.1.0/index.html
+  git cat-file -e pages:0.2.0/index.html
+  git show pages:apt/package.deb | grep -qx keep-package
+  git show pages:Formula/lasa.rb | grep -qx keep-formula
+  git show pages:CNAME | grep -qx lasa.secureobs.com
 )
 python - "$temp/versions.json" <<'PYTEST'
 import json, sys
 versions = {item['version']: item for item in json.load(open(sys.argv[1]))}
-assert versions['0.2.0']['aliases'] == ['latest']
-assert not versions['preview']['aliases']
+assert set(versions) == {'0.1.0', '0.2.0', 'current'}
+assert versions['current']['title'] == 'Current documentation'
+assert set(versions['current']['aliases']) == {'latest', 'preview'}
+assert not versions['0.2.0']['aliases']
 PYTEST
-python scripts/prepare-docs.py
 python scripts/check-docs-version.py 0.2.0 "$temp/versions.json"
 if python scripts/check-docs-version.py 0.1.0 "$temp/versions.json" > "$temp/error" 2>&1; then exit 1; fi
 grep -q 'Refusing to roll back documentation' "$temp/error"
-echo 'PASS: strict customer-only site, search and real two-version Mike deployments preserve packages, formula, domain and old documentation'
+echo 'PASS: strict customer site, search, release archives, current docs, legacy redirects, package/domain preservation and rollback guards'

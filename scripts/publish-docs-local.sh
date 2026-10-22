@@ -23,4 +23,4 @@ test -s "$state/deploy-key" || { echo "Restore the existing deploy-key in $state
 export DISTRIBUTION_DEPLOY_KEY
 DISTRIBUTION_DEPLOY_KEY=$(cat "$state/deploy-key")
 export DOCS_SITE_URL=https://lasa.secureobs.com/
-bash scripts/publish-docs.sh preview
+bash scripts/publish-docs.sh current

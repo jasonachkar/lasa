@@ -2,7 +2,9 @@
 set -euo pipefail
 umask 077
 version=${1:?Usage: publish-docs.sh VERSION}
-[[ $version == preview || $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "Expected a stable version or preview" >&2; exit 1; }
+# Accept the old command argument without exposing the old product label.
+if [ "$version" = preview ]; then version=current; fi
+[[ $version == current || $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "Expected a stable version or current" >&2; exit 1; }
 : "${DISTRIBUTION_REPOSITORY:?Run publishing bootstrap first}"
 : "${DISTRIBUTION_BRANCH:?Missing branch}"
 : "${DISTRIBUTION_DEPLOY_KEY:?Missing deploy key secret}"
@@ -25,17 +27,27 @@ git add .nojekyll
 if ! git diff --cached --quiet; then git commit -m 'Serve generated LASA documentation without Jekyll'; fi
 if ! git show "$DISTRIBUTION_BRANCH:versions.json" > "$temp/versions.json" 2>/dev/null; then printf '[]\n' > "$temp/versions.json"; fi
 alias=$(python "$root/scripts/check-docs-version.py" "$version" "$temp/versions.json")
-export LASA_DOCS_PREVIEW=0
-if [ "$version" = preview ]; then export LASA_DOCS_PREVIEW=1; fi
 python "$root/scripts/prepare-docs.py"
 # Mike updates the branch tree directly and preserves apt/, Formula/, CNAME,
 # .nojekyll and all previously published documentation versions.
-deploy_versions=("$version")
-if [ "$alias" = latest ]; then deploy_versions+=(latest); fi
-mike deploy --config-file "$root/mkdocs.yml" --branch "$DISTRIBUTION_BRANCH" --remote origin --alias-type redirect --update-aliases "${deploy_versions[@]}"
-if [ "$alias" = latest ]; then
-  mike set-default --config-file "$root/mkdocs.yml" --branch "$DISTRIBUTION_BRANCH" --remote origin latest
+# Migrate the previous documentation channel out of the selector, preserving
+# bookmarked URLs as redirects. All changes become visible in one Git push.
+legacy=false
+if python - "$temp/versions.json" <<'PYINDEX'
+import json, sys
+sys.exit(0 if any(item["version"] == "preview" for item in json.load(open(sys.argv[1]))) else 1)
+PYINDEX
+then
+  legacy=true
+  mike delete --config-file "$root/mkdocs.yml" --branch "$DISTRIBUTION_BRANCH" --remote origin preview
 fi
+title=$version
+if [ "$version" = current ]; then title='Current documentation'; fi
+mike deploy --config-file "$root/mkdocs.yml" --branch "$DISTRIBUTION_BRANCH" --remote origin --alias-type redirect --update-aliases --title "$title" "$version" "$alias"
+if [ "$legacy" = true ]; then
+  mike alias --config-file "$root/mkdocs.yml" --branch "$DISTRIBUTION_BRANCH" --remote origin --alias-type redirect --update-aliases "$version" preview
+fi
+mike set-default --config-file "$root/mkdocs.yml" --branch "$DISTRIBUTION_BRANCH" --remote origin latest
 git push origin "$DISTRIBUTION_BRANCH:$DISTRIBUTION_BRANCH"
 # Verify deployment, not just the Git push. Use Pages' effective domain/base URL.
 pages_url=${DOCS_SITE_URL:-https://${DISTRIBUTION_REPOSITORY%/*}.github.io/${DISTRIBUTION_REPOSITORY#*/}/}

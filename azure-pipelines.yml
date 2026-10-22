@@ -27,7 +27,7 @@ stages:
               set -euo pipefail
               python -m pip install -r requirements-docs.txt
               bash test/docs.sh
-              bash scripts/publish-docs.sh preview
+              bash scripts/publish-docs.sh current
             displayName: Publish customer documentation independently of packages
             env:
               GH_TOKEN: $(GH_TOKEN)

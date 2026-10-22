@@ -13,7 +13,7 @@ def semver(value):
 
 
 try:
-    requested = None if sys.argv[1] == "preview" else semver(sys.argv[1])
+    requested = None if sys.argv[1] == "current" else semver(sys.argv[1])
     versions = json.loads(Path(sys.argv[2]).read_text())
     if not isinstance(versions, list) or any(not isinstance(item, dict) or not isinstance(item.get("version"), str) or not isinstance(item.get("aliases", []), list) for item in versions):
         raise ValueError("The existing version index must be a list of version/alias objects")
@@ -21,15 +21,17 @@ try:
     if len(names) != len(set(names)):
         raise ValueError("The existing site has duplicate version entries")
     for item in versions:
-        if item["version"] != "preview":
+        if item["version"] not in ("current", "preview"):
             semver(item["version"])
         if any(not isinstance(alias, str) for alias in item.get("aliases", [])):
             raise ValueError("Documentation aliases must be strings")
     latest = [item["version"] for item in versions if "latest" in item.get("aliases", [])]
     if len(latest) > 1:
         raise ValueError("The existing site has multiple latest aliases")
-    if requested is not None and latest and latest[0] != "preview" and requested < semver(latest[0]):
-        raise ValueError(f"Refusing to roll back documentation from {latest[0]} to {sys.argv[1]}")
-    print("latest" if not latest or latest[0] == "preview" or requested is not None else "preview")
+    released = [semver(name) for name in names if name not in ("current", "preview")]
+    if requested is not None and released and requested < max(released):
+        newest = ".".join(map(str, max(released)))
+        raise ValueError(f"Refusing to roll back documentation from {newest} to {sys.argv[1]}")
+    print("latest")
 except (ValueError, KeyError, TypeError, OSError, IndexError) as error:
     raise SystemExit(f"Documentation version validation failed: {error}")

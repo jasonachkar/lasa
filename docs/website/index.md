@@ -1,56 +1,116 @@
-# Understand your Linux attack surface
+---
+title: LASA documentation
+---
 
-<div class="lasa-intro" markdown>
+<p class="lasa-eyebrow">Linux Attack Surface Analyzer</p>
 
-**LASA connects local runtime metadata to evidence-backed security findings.**
+# LASA documentation
 
-See what was observed, why it matters, where visibility was restricted and what to investigate next. Scans run locally, without a cloud account or telemetry.
+<div class="lasa-lead" markdown>
 
-[Install LASA](installation.md){ .md-button .md-button--primary }
-[What does it access?](data-and-privacy.md){ .md-button }
+Understand what is exposed on your Linux systems. Install LASA, run your first scan, and turn local runtime evidence into actionable security findings.
 
 </div>
 
-## From installation to your first report
+<div class="lasa-actions" markdown>
 
-1. [Install](installation.md) with APT, the Linux Homebrew tap or a verified release binary.
-2. Run `lasa doctor` as your ordinary user to inspect platform support and visibility.
-3. Run `lasa scan` for a bounded, read-only snapshot.
-4. [Interpret the evidence](results.md), including unknowns and collection errors.
-5. Save a private JSON or self-contained HTML report when you need to share or compare results.
+[Install LASA :material-arrow-right:](installation.md){ .md-button .md-button--primary }
+[Explore the product guide](product-guide.md){ .md-button }
+
+</div>
+
+<div class="lasa-facts" markdown>
+
+<span>:material-linux: Linux AMD64 & ARM64</span>
+<span>:material-shield-check-outline: Read-only collection</span>
+<span>:material-lock-outline: Local reports. No telemetry.</span>
+
+</div>
+
+## Find your way
+
+Everything you need to install, use and operate LASA, with clear explanations of the evidence it collects.
+
+<div class="lasa-cards" markdown>
+
+-   :material-download-outline: **Install and get started**
+
+    Set up LASA with APT, Linux Homebrew or a release binary, and check your system's visibility.
+
+    [Installation and first use :material-arrow-right:](installation.md)
+
+-   :material-console: **Run a scan**
+
+    Explore commands, scanning options, report formats and exit codes.
+
+    [CLI reference :material-arrow-right:](cli-reference.md)
+
+-   :material-file-search-outline: **Understand your findings**
+
+    Follow the evidence behind each result, assess severity and identify your next steps.
+
+    [Read and interpret results :material-arrow-right:](results.md)
+
+-   :material-shield-lock-outline: **Know what LASA accesses**
+
+    See what the scanner reads, what it stores and how your data stays on your systems.
+
+    [Collection, access and privacy :material-arrow-right:](data-and-privacy.md)
+
+-   :material-server-outline: **Deploy and operate**
+
+    Schedule scans, manage report retention and configure the optional systemd service.
+
+    [Operations guide :material-arrow-right:](operations.md)
+
+-   :material-lifebuoy: **Resolve a problem**
+
+    Understand permission errors, missing evidence and collection diagnostics.
+
+    [Troubleshooting :material-arrow-right:](troubleshooting.md)
+
+</div>
+
+## Your first scan
+
+<div class="lasa-steps" markdown>
+
+### 1. Check your system
+
+After [installing LASA](installation.md), check platform support and the visibility available to your current user.
 
 ```bash
 lasa doctor
+```
+
+### 2. Collect a snapshot
+
+Run a bounded, read-only scan. The terminal report explains findings and highlights any collection gaps.
+
+```bash
 lasa scan
+```
+
+### 3. Save and explore the evidence
+
+Save a JSON report and turn it into a self-contained HTML report for review. Report files stay on your system.
+
+```bash
 lasa scan --format json --output first.report.json
 lasa report --input first.report.json --format html --output first.report.html
 ```
 
-## Know what runs on your machine
+</div>
 
-| Question | Read this |
-| --- | --- |
-| What does LASA read, and which paths does it inspect? | [Collection, access and privacy](data-and-privacy.md) |
-| Does it read passwords, private keys or network payloads? | [What LASA does not collect](data-and-privacy.md#what-lasa-does-not-collect-or-do) |
-| Where do reports go, and who can read them? | [Storage and permissions](data-and-privacy.md#what-is-stored) |
-| When is elevated access needed? | [Installation and elevated views](installation.md#elevated-and-container-views) |
-| What does a finding prove? | [Results and uncertainty](results.md) |
-| How do I automate scans and retention? | [Operations](operations.md) |
-| Why did a collection or command fail? | [Troubleshooting](troubleshooting.md) |
+## Understand the scope
 
-!!! note "Linux is required for scanning"
-    LASA targets Linux AMD64 and ARM64 with `openat2` support, normally kernel 5.6 or later. Publishing can be managed from a Mac, but native macOS and Windows scans are not supported. Windows users can run the Linux package inside a compatible WSL distribution. The Homebrew formula requires Linux.
+LASA connects process, socket, namespace, mount, permission and selected kernel metadata to security findings. Each result explains what was observed and where visibility was limited. It does not exploit the host, modify its security configuration, capture network payloads or upload reports.
 
-## Read-only collection, explicit limits
+- [Product guide](product-guide.md) — capabilities and common workflows.
+- [Compatibility and limits](compatibility.md) — supported systems and collection boundaries.
+- [Collection, access and privacy](data-and-privacy.md) — inspected paths, stored data and permissions.
+- [SecureObs and local exports](secureobs.md) — working with reports outside the scanner.
 
-LASA reads process, socket, namespace, mount, permission and selected kernel metadata. It does not exploit the host, remediate findings, collect full command arguments or process environments, capture traffic payloads, or upload reports. Metadata can still reveal sensitive infrastructure details; reports need appropriate access controls.
+## Documentation versions
 
-A finding is a conditional risk assessment with supporting evidence. It is not proof of successful exploitation. Missing evidence remains unknown. A finding-free or incomplete scan is not a security certification. Read [compatibility and limits](compatibility.md) before deploying it across a fleet.
-
-## Packages and documentation versions
-
-Releases supply Linux AMD64/ARM64 binaries, `.deb` packages, archives, checksums, SBOMs and provenance verification. APT verifies signed repository metadata and package hashes; the Homebrew tap pins archive checksums. See [installation](installation.md) for download verification and updates.
-
-The version selector keeps documentation for published releases and an explicitly labelled unreleased `preview`. Before the first release, the site opens the preview; installation examples may describe packages that are not available yet. `latest` follows the newest release; report schema versions are separate from executable versions. Choose the documentation matching `lasa version` when operating an older installation.
-
-[Website third-party notices](assets/licenses/NOTICE.txt) cover the documentation tools and theme. Scanner dependency notices accompany release packages.
+Use **Current documentation** for the maintained product guide, or select a numbered release to match the output of `lasa version`. Executable versions and report schema versions are separate; see [understand results](results.md) when comparing reports across releases.

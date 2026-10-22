@@ -127,7 +127,7 @@ def configure(api, project_name, secrets, public, branch, configure_only):
         else:
             build = api.request("POST", prefix + "build/builds", {"definition": {"id": pipeline_id}, "sourceBranch": branch})
             print("Queued run: " + build.get("_links", {}).get("web", {}).get("href", url))
-    print("Feature branches publish preview docs and verify code. Stable releases publish automatically on main.")
+    print("Trusted branch runs publish customer docs and verify code. Stable releases publish automatically on main.")
 
 
 def main():

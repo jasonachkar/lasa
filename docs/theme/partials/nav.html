@@ -1,0 +1,23 @@
+{# Keep the same complete navigation tree in the desktop rail and mobile drawer. #}
+<nav class="md-nav md-nav--primary" aria-label="{{ lang.t('nav') }}" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <span class="md-nav__button md-logo">{% include "partials/logo.html" %}</span>
+    {{ config.site_name }}
+  </label>
+  <ul class="md-nav__list" data-md-scrollfix>
+    {% for section in nav.items %}
+      <li class="md-nav__item md-nav__item--section">
+        <span class="md-nav__link lasa-nav-heading" id="lasa-nav-{{ loop.index }}">{{ section.title }}</span>
+        <ul class="md-nav__list" aria-labelledby="lasa-nav-{{ loop.index }}">
+          {% for entry in section.children %}
+            <li class="md-nav__item{% if entry.active %} md-nav__item--active{% endif %}">
+              <a href="{{ entry.url | url }}" class="md-nav__link{% if entry.active %} md-nav__link--active{% endif %}"{% if entry.active %} aria-current="page"{% endif %}>
+                <span class="md-ellipsis">{{ entry.title }}</span>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      </li>
+    {% endfor %}
+  </ul>
+</nav>

@@ -10,7 +10,7 @@ Build with the supported Go 1.27.2 patch release. CGO is disabled for release bi
 
 ## APT and Homebrew packages
 
-These commands require a successfully published release and distribution site; the presence of workflow source alone does not mean packages are live.
+Install LASA from the signed APT repository on Debian/Ubuntu or the Linux Homebrew tap. Both methods select the package for your system's architecture.
 
 On Debian/Ubuntu Linux AMD64 or ARM64, the installer configures a repository-specific signing key, verifies its fingerprint and installs the package:
 
@@ -54,7 +54,7 @@ lasa doctor
 lasa scan
 ```
 
-This command installs the binary; the scanner itself never invokes sudo. Do not make the binary SUID or assign broad file capabilities to it. If release assets are published, verify their checksums and release provenance before installation. Release signing configuration in the repository is not evidence that an unpublished binary has been signed.
+This command installs the binary; the scanner itself never invokes sudo. Do not make the binary SUID or assign broad file capabilities to it. For direct downloads, verify checksums and release provenance before installation.
 
 ## Verify release provenance
 

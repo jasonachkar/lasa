@@ -2,9 +2,9 @@ name: Customer documentation
 on:
   push:
     branches: [main]
-    paths: ['docs/customer/**', 'docs/website/**', 'mkdocs.yml', 'requirements-docs.txt', 'scripts/prepare-docs.py', 'scripts/publish-docs.sh', '.github/workflows/docs.yml']
+    paths: ['docs/customer/**', 'docs/website/**', 'docs/theme/**', 'mkdocs.yml', 'requirements-docs.txt', 'scripts/prepare-docs.py', 'scripts/publish-docs.sh', '.github/workflows/docs.yml']
   pull_request:
-    paths: ['docs/customer/**', 'docs/website/**', 'mkdocs.yml', 'requirements-docs.txt', 'scripts/prepare-docs.py', 'scripts/publish-docs.sh', '.github/workflows/docs.yml']
+    paths: ['docs/customer/**', 'docs/website/**', 'docs/theme/**', 'mkdocs.yml', 'requirements-docs.txt', 'scripts/prepare-docs.py', 'scripts/publish-docs.sh', '.github/workflows/docs.yml']
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -61,7 +61,7 @@ jobs:
         run: |
           version=$REQUESTED_VERSION
           if [ -z "$version" ]; then
-            # Development docs remain available even before the first release.
-            version=preview
+            # Publish the maintained product documentation independently of packages.
+            version=current
           fi
           bash scripts/publish-docs.sh "$version"
