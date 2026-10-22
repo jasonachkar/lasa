@@ -33,7 +33,7 @@ jobs:
           bash test/domain.sh
           bash test/bootstrap-distribution.sh
           python3 -m unittest discover -s test -p 'test_azure.py'
-          shellcheck scripts/bootstrap-azure.sh scripts/publish-docs-local.sh scripts/release-from-azure.sh scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-from-actions.sh scripts/publish-docs.sh scripts/install-apt-body.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh
+          shellcheck scripts/repair-docs-https.sh scripts/bootstrap-azure.sh scripts/publish-docs-local.sh scripts/release-from-azure.sh scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-from-actions.sh scripts/publish-docs.sh scripts/install-apt-body.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh
       - name: Real container view smoke test
         run: |
           version=$(make -s print-version)

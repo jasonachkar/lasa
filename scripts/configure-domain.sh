@@ -2,17 +2,40 @@
 # macOS Bash 3.2 compatible. DNS credentials are used locally and not persisted.
 set -euo pipefail
 umask 077
-distribution=${1:?Usage: configure-domain.sh OWNER/DISTRIBUTION-REPO}
+distribution=${1:?Usage: configure-domain.sh OWNER/DISTRIBUTION-REPO [--repair-certificate]}
+repair=false
+if [ "${2:-}" = --repair-certificate ]; then repair=true; fi
+[[ $# -eq 1 || ($# -eq 2 && $repair == true) ]] || { echo 'Unexpected domain setup argument' >&2; exit 1; }
 domain=lasa.secureobs.com
 trap 'printf "Domain setup failed for %s at line %s; see the preceding network/API error.\n" "$domain" "$LINENO" >&2' ERR
 target="$(printf '%s' "${distribution%/*}" | tr '[:upper:]' '[:lower:]').github.io"
 [[ $distribution =~ ^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$ ]] || exit 1
 for tool in gh jq curl; do command -v "$tool" >/dev/null || { echo "Missing domain setup tool: $tool" >&2; exit 1; }; done
 temp=$(mktemp -d)
-trap 'rm -rf "$temp"' EXIT
+rebinding=false
+reprovisioned=false
+repair_pending_file=
+# Restore this same domain if certificate reprovisioning is interrupted.
+# shellcheck disable=SC2317
+cleanup() {
+  if $rebinding; then
+    if gh api --method PUT "repos/$distribution/pages" -f "cname=$domain" >/dev/null; then
+      echo "Restored the Pages domain after interrupted certificate repair: $domain" >&2
+    else
+      echo "Could not restore $domain after interrupted repair. Rerun the HTTPS repair command with working GitHub access." >&2
+    fi
+  fi
+  if [ -n "$repair_pending_file" ]; then rm -f "$repair_pending_file"; fi
+  rm -rf "$temp"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 # Skip the registrar API if the right public CNAME is already configured.
-curl --proto '=https' --tlsv1.2 -fsS --get 'https://dns.google/resolve' --data-urlencode "name=$domain" --data-urlencode type=CNAME > "$temp/dns.json"
+curl --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 -fsS --get 'https://dns.google/resolve' --data-urlencode "name=$domain" --data-urlencode type=CNAME > "$temp/dns.json"
+jq -e '.Status == 0' "$temp/dns.json" >/dev/null || fail 'The public DNS lookup failed. No registrar records were changed; check DNS/DNSSEC and retry.'
 current=$(jq -r '[.Answer[]? | select(.type==5) | .data | rtrimstr(".")] | unique | join(" ")' "$temp/dns.json")
 if [[ $current != "$target" ]]; then
   if [ -n "$current" ]; then fail "$domain already points to $current. Refusing to overwrite an existing site automatically."; fi
@@ -57,10 +80,86 @@ if [ -z "$pages_domain" ]; then
 else
   echo "Reusing the existing Pages domain: $domain"
 fi
+
+# Removing and restoring the same custom domain is GitHub's supported way to
+# restart stalled issuance. Only do this in repair mode, with positive DNS health,
+# a genuine TLS provisioning error and HTTPS enforcement still disabled.
+if $repair && [ -n "$pages_domain" ]; then
+  if curl --proto '=https' --tlsv1.2 --connect-timeout 5 --max-time 10 --silent --show-error --head --output /dev/null "https://$domain/" 2> "$temp/tls-error"; then
+    echo 'The current HTTPS certificate already verifies; no reprovisioning is needed.'
+  else
+    tls_status=$?
+    case "$tls_status" in
+      35|51|60) ;;
+      *) cat "$temp/tls-error" >&2; fail "The HTTPS probe failed with curl code $tls_status, indicating a connection/resolver/proxy problem. The domain was not reset.";;
+    esac
+    snapshot=$(gh api "repos/$distribution/pages" --jq '{certificate:.https_certificate,https_enforced:.https_enforced}')
+    state=$(jq -r '.certificate.state // "pending"' <<< "$snapshot")
+    enforced=$(jq -r '.https_enforced' <<< "$snapshot")
+    if [[ $enforced == false && $state != approved ]]; then
+      for ((health_attempt=0; health_attempt<12; health_attempt++)); do
+        gh api "repos/$distribution/pages/health" > "$temp/health.json"
+        if jq -e '.domain | type == "object"' "$temp/health.json" >/dev/null; then break; fi
+        echo 'GitHub DNS health is pending or not eligible for a reset yet; waiting for its asynchronous result.'
+        if (( health_attempt < 11 )); then sleep 5; fi
+      done
+      caa_error=$(jq -r '.domain.caa_error // empty' "$temp/health.json")
+      [ -z "$caa_error" ] || fail "GitHub reports a CAA policy error for $domain: $caa_error. Existing DNS security policies were not changed."
+      if jq -e '.domain | .dns_resolves == true and .is_valid == true and .is_https_eligible == true' "$temp/health.json" >/dev/null; then
+        : "${LASA_HTTPS_REPAIR_STATE:?Use scripts/repair-docs-https.sh so certificate repairs have a cooldown record}"
+        now=$(date +%s)
+        last=0
+        if [ -f "$LASA_HTTPS_REPAIR_STATE" ]; then
+          last=$(cat "$LASA_HTTPS_REPAIR_STATE")
+          [[ $last =~ ^(0|[1-9][0-9]{0,9})$ ]] || fail "Invalid certificate repair timestamp: $LASA_HTTPS_REPAIR_STATE"
+        fi
+        (( last <= now )) || fail "The certificate repair timestamp is in the future. Check this machine's clock: $LASA_HTTPS_REPAIR_STATE"
+        if (( now - last < 3600 )); then
+          echo 'A certificate refresh was requested within the last hour. Preserving that request and waiting for issuance.'
+        else
+          # Save before writing Pages settings so reruns after interruption do not
+          # repeatedly reset issuance. Rebinding on the next run also repairs an
+          # interrupted process that could not execute its EXIT trap.
+          mkdir -p "$(dirname "$LASA_HTTPS_REPAIR_STATE")"
+          repair_pending_file="$LASA_HTTPS_REPAIR_STATE.tmp.$$"
+          printf '%s\n' "$now" > "$repair_pending_file"
+          mv "$repair_pending_file" "$LASA_HTTPS_REPAIR_STATE"
+          repair_pending_file=
+          printf '{"cname":null}\n' > "$temp/clear-domain.json"
+          echo "Restarting certificate provisioning once for $domain in $distribution."
+          rebinding=true
+          gh api --method PUT "repos/$distribution/pages" --input "$temp/clear-domain.json" >/dev/null
+          gh api --method PUT "repos/$distribution/pages" -f "cname=$domain" >/dev/null
+          rebinding=false
+          reprovisioned=true
+        fi
+      else
+        echo 'GitHub DNS health is pending or not eligible; the existing domain binding was preserved.'
+        jq -c '.domain // {}' "$temp/health.json"
+      fi
+    else
+      echo 'GitHub already reports an approved certificate or enforced HTTPS. Preserving its binding and checking delivery.'
+    fi
+  fi
+fi
+
+verify_http_redirect() {
+  local status location
+  if ! status=$(curl --proto '=http' --connect-timeout 5 --max-time 10 --silent --show-error --head --dump-header "$temp/http-headers" --output /dev/null --write-out '%{http_code}' "http://$domain/"); then
+    http_details='HTTP redirect probe could not connect; see the curl error above.'
+    return 1
+  fi
+  location=$(awk 'tolower($1)=="location:" {sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' "$temp/http-headers")
+  http_details="HTTP $status, Location: ${location:-missing}"
+  case "$status" in 301|302|303|307|308) ;; *) echo "HTTP still returns $status rather than redirecting to HTTPS."; return 1;; esac
+  [[ $location == "https://$domain/"* ]] || { echo "Unexpected HTTP redirect destination: $location"; return 1; }
+}
 echo "DNS record configured: $domain -> $target. Waiting for GitHub's HTTPS certificate."
 wait_started=$SECONDS
 previous_state=
 dns_details='No DNS health result is available yet.'
+tls_details='Not checked yet.'
+http_details='Not checked yet.'
 for ((attempt=0; attempt<120; attempt++)); do
   certificate=$(gh api "repos/$distribution/pages" --jq '{certificate:.https_certificate,https_enforced:.https_enforced}')
   state=$(jq -r '.certificate.state // "pending"' <<< "$certificate")
@@ -71,19 +170,27 @@ for ((attempt=0; attempt<120; attempt++)); do
   previous_state=$state
   case "$state" in
     errored|bad_authz|authorization_revoked|certificate_revoked)
-      fail "GitHub certificate issuance failed ($state): $details";;
+      if $reprovisioned && (( attempt < 4 )); then
+        echo 'Waiting for the previous certificate error to be replaced after reprovisioning.'
+      else
+        fail "GitHub certificate issuance failed ($state): $details"
+      fi;;
   esac
   # Certificate metadata is optional in GitHub's API. A verified TLS handshake
   # also proves readiness; never wait indefinitely just because that field is null.
   if [[ $state == approved ]] || (( attempt % 4 == 0 )); then
     if curl --proto '=https' --tlsv1.2 --connect-timeout 5 --max-time 10 --silent --show-error --head --output /dev/null "https://$domain/" 2> "$temp/tls-error"; then
+      tls_details='Hostname and CA verification succeeded.'
       if [[ $(jq -r '.https_enforced' <<< "$certificate") == true ]]; then
-        echo "HTTPS is already enabled and its certificate verifies for https://$domain"
-        exit 0
-      fi
-      if gh api --method PUT "repos/$distribution/pages" -F https_enforced=true > /dev/null 2> "$temp/enforce-error"; then
-        echo "HTTPS enabled and its certificate verified for https://$domain"
-        exit 0
+        if verify_http_redirect; then
+          echo "HTTPS is already enabled and its certificate verifies for https://$domain; HTTP redirects to HTTPS."
+          exit 0
+        fi
+      elif gh api --method PUT "repos/$distribution/pages" -F https_enforced=true > /dev/null 2> "$temp/enforce-error"; then
+        if verify_http_redirect; then
+          echo "HTTPS enabled and its certificate verified for https://$domain; HTTP redirects to HTTPS."
+          exit 0
+        fi
       elif grep -q 'HTTP 422' "$temp/enforce-error"; then
         printf 'TLS verifies, but GitHub is not yet allowing HTTPS enforcement: %s\n' "$(cat "$temp/enforce-error")"
       else
@@ -91,7 +198,8 @@ for ((attempt=0; attempt<120; attempt++)); do
         fail 'GitHub rejected HTTPS enforcement; the existing domain and keys were preserved.'
       fi
     else
-      printf 'HTTPS certificate is not ready from this machine: %s\n' "$(cat "$temp/tls-error")"
+      tls_details=$(cat "$temp/tls-error")
+      printf 'HTTPS certificate is not ready from this machine: %s\n' "$tls_details"
     fi
   fi
   if (( attempt % 4 == 0 )); then
@@ -110,4 +218,4 @@ for ((attempt=0; attempt<120; attempt++)); do
   fi
   sleep 15
 done
-fail "DNS/Pages are configured, but GitHub has not issued the HTTPS certificate within the 30-minute polling window (state: $state). Last DNS health: $dns_details. Rerun bootstrap after resolving the reported cause; no TLS verification was bypassed."
+fail "DNS/Pages are configured, but verified HTTPS and its HTTP redirect did not become ready within 30 minutes (certificate state: $state). Last DNS health: $dns_details. Last TLS check: $tls_details. Last redirect check: $http_details. No TLS verification was bypassed."
