@@ -111,6 +111,6 @@ LASA connects process, socket, namespace, mount, permission and selected kernel 
 - [Collection, access and privacy](data-and-privacy.md) — inspected paths, stored data and permissions.
 - [SecureObs and local exports](secureobs.md) — working with reports outside the scanner.
 
-## Documentation versions
+## Versions and compatibility
 
-Use **Current documentation** for the maintained product guide, or select a numbered release to match the output of `lasa version`. Executable versions and report schema versions are separate; see [understand results](results.md) when comparing reports across releases.
+Run `lasa version` to check the installed scanner version. Executable versions and report schema versions are separate; see [understand results](results.md) when comparing reports across releases and [compatibility and limits](compatibility.md) for system requirements.
