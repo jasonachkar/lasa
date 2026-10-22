@@ -1,116 +1,93 @@
 ---
 title: LASA documentation
+description: Your field guide to Linux attack surface, local evidence, read-only scanning and security findings with LASA.
 ---
 
-<p class="lasa-eyebrow">Linux Attack Surface Analyzer</p>
-
-# LASA documentation
+# Know your Linux attack surface.
 
 <div class="lasa-lead" markdown>
 
-Understand what is exposed on your Linux systems. Install LASA, run your first scan, and turn local runtime evidence into actionable security findings.
+Your field guide to exposed services, permissions and runtime evidence. Start with one Linux system. Follow a finding back to its source. Understand what was checked and where visibility was limited.
 
 </div>
 
 <div class="lasa-actions" markdown>
 
-[Install LASA :material-arrow-right:](installation.md){ .md-button .md-button--primary }
-[Explore the product guide](product-guide.md){ .md-button }
+[Run your first scan :material-arrow-right:](installation.md){ .md-button .md-button--primary }
+[Explore LASA](product-guide.md){ .md-button }
 
 </div>
 
-<div class="lasa-facts" markdown>
+## From a local snapshot to a clear next step
 
-<span>:material-linux: Linux AMD64 & ARM64</span>
-<span>:material-shield-check-outline: Read-only collection</span>
-<span>:material-lock-outline: Local reports. No telemetry.</span>
+<div class="lasa-workflow" markdown>
+
+-   **1. Check your system**
+
+    Install LASA on Linux AMD64 or ARM64. Use `lasa doctor` to check platform support and the visibility available to your current user.
+
+-   **2. Understand the evidence**
+
+    Run a read-only scan. Connect process, socket, namespace, mount and permission metadata to findings, and review any collection gaps.
+
+-   **3. Review and follow through**
+
+    Trace each finding to its evidence. Review recommended remediation, make changes through your own operations process, and scan again.
 
 </div>
 
-## Find your way
-
-Everything you need to install, use and operate LASA, with clear explanations of the evidence it collects.
+## Choose your next step
 
 <div class="lasa-cards" markdown>
 
--   :material-download-outline: **Install and get started**
+-   [I am new to LASA :material-arrow-right:](installation.md)
 
-    Set up LASA with APT, Linux Homebrew or a release binary, and check your system's visibility.
+    Install with APT, Linux Homebrew or a release binary, and complete your first scan.
 
-    [Installation and first use :material-arrow-right:](installation.md)
+-   [I want to automate scans :material-arrow-right:](cli-reference.md)
 
--   :material-console: **Run a scan**
+    Choose scan options, export formats and exit codes for your workflow.
 
-    Explore commands, scanning options, report formats and exit codes.
+-   [I am investigating a finding :material-arrow-right:](results.md)
 
-    [CLI reference :material-arrow-right:](cli-reference.md)
+    Read severity and supporting evidence, assess uncertainty and review your next steps.
 
--   :material-file-search-outline: **Understand your findings**
+-   [I need to understand data access :material-arrow-right:](data-and-privacy.md)
 
-    Follow the evidence behind each result, assess severity and identify your next steps.
+    See exactly what LASA reads, what it stores and which permissions it needs.
 
-    [Read and interpret results :material-arrow-right:](results.md)
-
--   :material-shield-lock-outline: **Know what LASA accesses**
-
-    See what the scanner reads, what it stores and how your data stays on your systems.
-
-    [Collection, access and privacy :material-arrow-right:](data-and-privacy.md)
-
--   :material-server-outline: **Deploy and operate**
+-   [I operate Linux systems :material-arrow-right:](operations.md)
 
     Schedule scans, manage report retention and configure the optional systemd service.
 
-    [Operations guide :material-arrow-right:](operations.md)
+-   [I need to resolve a problem :material-arrow-right:](troubleshooting.md)
 
--   :material-lifebuoy: **Resolve a problem**
-
-    Understand permission errors, missing evidence and collection diagnostics.
-
-    [Troubleshooting :material-arrow-right:](troubleshooting.md)
+    Understand permission errors, incomplete collection and diagnostic messages.
 
 </div>
 
 ## Your first scan
 
-<div class="lasa-steps" markdown>
-
-### 1. Check your system
-
-After [installing LASA](installation.md), check platform support and the visibility available to your current user.
+After [installing LASA](installation.md), check your system and collect a snapshot:
 
 ```bash
 lasa doctor
-```
-
-### 2. Collect a snapshot
-
-Run a bounded, read-only scan. The terminal report explains findings and highlights any collection gaps.
-
-```bash
 lasa scan
 ```
 
-### 3. Save and explore the evidence
-
-Save a JSON report and turn it into a self-contained HTML report for review. Report files stay on your system.
+Save the evidence as JSON and create a self-contained HTML report for review:
 
 ```bash
 lasa scan --format json --output first.report.json
 lasa report --input first.report.json --format html --output first.report.html
 ```
 
-</div>
+## Know what your results prove
 
-## Understand the scope
+LASA reads local Linux metadata and evaluates it with local security rules. It does not exploit the host, modify security configuration, capture network payloads or upload reports. Your reports stay on your system, with no telemetry or cloud account required.
 
-LASA connects process, socket, namespace, mount, permission and selected kernel metadata to security findings. Each result explains what was observed and where visibility was limited. It does not exploit the host, modify its security configuration, capture network payloads or upload reports.
-
-- [Product guide](product-guide.md) — capabilities and common workflows.
-- [Compatibility and limits](compatibility.md) — supported systems and collection boundaries.
-- [Collection, access and privacy](data-and-privacy.md) — inspected paths, stored data and permissions.
-- [SecureObs and local exports](secureobs.md) — working with reports outside the scanner.
+An empty findings list does not establish that a system is secure. Check the scan scope and collection diagnostics before drawing conclusions. See [compatibility and limits](compatibility.md) and [collection, access and privacy](data-and-privacy.md) for the boundaries of a scan.
 
 ## Versions and compatibility
 
-Run `lasa version` to check the installed scanner version. Executable versions and report schema versions are separate; see [understand results](results.md) when comparing reports across releases and [compatibility and limits](compatibility.md) for system requirements.
+Run `lasa version` to check the installed scanner version. Executable versions and report schema versions are separate; see [understand results](results.md) when comparing reports across releases.

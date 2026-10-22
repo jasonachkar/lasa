@@ -1,5 +1,5 @@
 {# Keep the same complete navigation tree in the desktop rail and mobile drawer. #}
-<nav class="md-nav md-nav--primary" aria-label="{{ lang.t('nav') }}" data-md-level="0">
+<nav id="lasa-navigation" class="md-nav md-nav--primary" aria-label="{{ lang.t('nav') }}" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
     <span class="md-nav__button md-logo">{% include "partials/logo.html" %}</span>
     {{ config.site_name }}
@@ -7,16 +7,21 @@
   <ul class="md-nav__list" data-md-scrollfix>
     {% for section in nav.items %}
       <li class="md-nav__item md-nav__item--section">
-        <span class="md-nav__link lasa-nav-heading" id="lasa-nav-{{ loop.index }}">{{ section.title }}</span>
-        <ul class="md-nav__list" aria-labelledby="lasa-nav-{{ loop.index }}">
-          {% for entry in section.children %}
-            <li class="md-nav__item{% if entry.active %} md-nav__item--active{% endif %}">
-              <a href="{{ entry.url | url }}" class="md-nav__link{% if entry.active %} md-nav__link--active{% endif %}"{% if entry.active %} aria-current="page"{% endif %}>
-                <span class="md-ellipsis">{{ entry.title }}</span>
-              </a>
-            </li>
-          {% endfor %}
-        </ul>
+        <details class="lasa-nav-section" open>
+          <summary class="lasa-nav-heading">
+            <span id="lasa-nav-{{ loop.index }}">{{ section.title }}</span>
+            <span class="md-icon lasa-nav-caret" aria-hidden="true">{% include ".icons/material/chevron-right.svg" %}</span>
+          </summary>
+          <ul class="md-nav__list" aria-labelledby="lasa-nav-{{ loop.index }}">
+            {% for entry in section.children %}
+              <li class="md-nav__item{% if entry.active %} md-nav__item--active{% endif %}">
+                <a href="{{ entry.url | url }}" class="md-nav__link{% if entry.active %} md-nav__link--active{% endif %}"{% if entry.active %} aria-current="page"{% endif %}>
+                  <span class="md-ellipsis">{{ entry.title }}</span>
+                </a>
+              </li>
+            {% endfor %}
+          </ul>
+        </details>
       </li>
     {% endfor %}
   </ul>

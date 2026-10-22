@@ -25,7 +25,6 @@ theme:
         name: Switch to dark mode
   features:
     - navigation.sections
-    - navigation.path
     - navigation.top
     - navigation.footer
     - toc.follow
@@ -35,6 +34,8 @@ theme:
 plugins:
   - search
 markdown_extensions:
+  - toc:
+      title: On this page
   - admonition
   - attr_list
   - md_in_html
@@ -48,6 +49,8 @@ extra:
   generator: false
 extra_css:
   - assets/site.css
+extra_javascript:
+  - assets/site.js
 nav:
   - Start here:
       - Welcome: index.md

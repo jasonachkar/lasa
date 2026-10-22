@@ -2,7 +2,7 @@
 
 {# Keep the footer in the article column so it cannot shorten either sidebar. #}
 {% block container %}
-  <div class="md-content" data-md-component="content">
+  <div class="md-content{% if page and page.file.src_uri == 'index.md' %} lasa-home{% endif %}" data-md-component="content">
     {% if "navigation.path" in features %}
       {% include "partials/path.html" %}
     {% endif %}

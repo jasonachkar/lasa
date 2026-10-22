@@ -13,7 +13,8 @@ if destination.exists():
 shutil.copytree(root / "docs/website", destination)
 for source in sorted((root / "docs/customer").glob("*.md")):
     text = source.read_text()
-    text = text.replace("[Documentation home](../../README.md)", "[Documentation home](index.md)")
+    # The website's brand and sidebar already link home; keep the link in source Markdown only.
+    text = text.replace("[Documentation home](../../README.md)\n", "")
     text = text.replace("../../deploy/systemd/", "assets/systemd/")
     text = text.replace("../../schemas/", "assets/schemas/")
     if "../maintainer/" in text or "../../README.md" in text:

@@ -1,0 +1,29 @@
+{# Preserve Material's search and palette behavior inside the LASA docs header. #}
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="{{ lang.t('header') }}">
+    <a class="lasa-brand" href="{{ nav.homepage.url | url }}" aria-label="LASA documentation home" data-md-component="logo">
+      <img src="{{ config.theme.logo | url }}" alt="" width="36" height="36">
+      <span>LASA</span>
+    </a>
+    {% if "material/search" in config.plugins %}
+      {% if config.plugins["material/search"].config.enabled %}
+        <label class="md-header__button md-icon lasa-mobile-search lasa-toggle" for="__search" role="button" tabindex="0" aria-label="{{ lang.t('search') }}">
+          {% include ".icons/material/magnify.svg" %}
+        </label>
+        {% include "partials/search.html" %}
+      {% endif %}
+    {% endif %}
+    <div class="lasa-header-tools">
+      <a class="lasa-source md-icon" href="https://github.com/jasonachkar/lasa" aria-label="LASA source code on GitHub" title="Source code">
+        {% include ".icons/fontawesome/brands/github.svg" %}
+      </a>
+      {% if config.theme.palette and not config.theme.palette is mapping %}
+        {% include "partials/palette.html" %}
+        {% include "partials/javascripts/palette.html" %}
+      {% endif %}
+      <label class="md-header__button md-icon lasa-menu lasa-toggle" for="__drawer" role="button" tabindex="0" aria-label="Toggle navigation" aria-controls="lasa-navigation" aria-expanded="false">
+        {% include ".icons/material/menu.svg" %}
+      </label>
+    </div>
+  </nav>
+</header>
