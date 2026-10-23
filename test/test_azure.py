@@ -5,9 +5,12 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
+from urllib.request import Request
 
 spec = importlib.util.spec_from_file_location("configure_azure", Path(__file__).resolve().parents[1] / "scripts/configure-azure.py")
 module = importlib.util.module_from_spec(spec)
@@ -239,6 +242,94 @@ class AuthenticationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "organization access could not be verified"):
                 module.authenticated_azure("https://dev.azure.com/example", "LASA")
         self.assertEqual(token.call_count, 2)
+
+
+class RedirectTests(unittest.TestCase):
+    def test_api_suppresses_federated_login_redirects_and_requests_json(self):
+        api = module.Azure("https://dev.azure.com/example", "secret-token")
+        with patch.object(module, "build_opener") as opener:
+            opener.return_value.open.return_value.__enter__.return_value.read.return_value = b'{"visibility":"private"}'
+            self.assertEqual(api.request("GET", "_apis/projects/LASA"), {"visibility": "private"})
+        request = opener.return_value.open.call_args.args[0]
+        headers = {key.lower(): value for key, value in request.header_items()}
+        self.assertEqual(headers["x-tfs-fedauthredirect"], "Suppress")
+        self.assertEqual(headers["accept"], "application/json")
+        self.assertEqual(headers["authorization"], "Bearer secret-token")
+
+    def test_microsoft_redirect_is_classified_without_disclosing_session_url(self):
+        request = Request("https://dev.azure.com/example/_apis/projects/LASA?api-version=7.1")
+        request.add_header("Authorization", "Bearer token-must-not-forward")
+        with self.assertRaises(module.AzureRedirectError) as result:
+            module.NoRedirect().redirect_request(request, None, 302, "Found", {},
+                                                "https://app.vssps.visualstudio.com/_signin?realm=SECRET_REALM&session=SECRET_SESSION")
+        self.assertTrue(module.access_denial(result.exception))
+        self.assertIn("Microsoft sign-in redirect", str(result.exception))
+        for secret in ("SECRET_REALM", "SECRET_SESSION", "token-must-not-forward", "_signin?"):
+            self.assertNotIn(secret, str(result.exception))
+
+    def test_unexpected_redirect_does_not_become_an_authentication_retry(self):
+        error = module.AzureRedirectError("GET", "_apis/projects/LASA", 307, "https://evil.test/secret-path?access_token=SECRET")
+        self.assertFalse(module.access_denial(error))
+        self.assertNotIn("secret-path", str(error))
+        self.assertNotIn("SECRET", str(error))
+        self.assertIn("evil.test", str(error))
+
+    def test_sign_in_redirect_is_not_treated_as_a_missing_project(self):
+        denied = module.AzureRedirectError("GET", "_apis/projects/LASA", 302, "https://app.vssps.visualstudio.com/_signin?secret=value")
+        with patch.object(module, "azure_token", return_value="token"), patch.object(module.Azure, "request", side_effect=denied) as request, patch.object(module.subprocess, "run") as mutation:
+            with self.assertRaisesRegex(RuntimeError, "profile/organization sign-in"):
+                module.authenticated_azure("https://dev.azure.com/example", "LASA")
+        self.assertEqual([c.args[0] for c in request.call_args_list], ["GET", "GET"])
+        mutation.assert_not_called()
+
+    def test_known_first_sign_in_code_is_retained_without_private_error_body(self):
+        api = module.Azure("https://dev.azure.com/example", "private-token")
+        body = b'{"message":"TF401444: Please sign in as private-user@example.test, token=PRIVATE_SECRET"}'
+        with patch.object(module, "build_opener") as opener:
+            opener.return_value.open.side_effect = HTTPError(api.base, 401, "private", {}, io.BytesIO(body))
+            with self.assertRaises(module.AzureHTTPError) as result:
+                api.request("GET", "_apis/projects/LASA")
+        self.assertEqual(result.exception.service_code, "TF401444")
+        self.assertIn("first browser sign-in", str(result.exception))
+        for secret in ("private-user", "PRIVATE_SECRET", "private-token"):
+            self.assertNotIn(secret, str(result.exception))
+
+    def test_html_response_is_explained_without_returning_html_secrets(self):
+        with patch.object(module, "build_opener") as opener:
+            opener.return_value.open.return_value.__enter__.return_value.read.return_value = b'<html>sign-in PRIVATE_SESSION</html>'
+            with self.assertRaisesRegex(RuntimeError, "non-JSON response") as result:
+                module.Azure("https://dev.azure.com/example", "token").request("GET", "_apis/projects/LASA")
+        self.assertNotIn("PRIVATE_SESSION", str(result.exception))
+
+    def test_oversized_response_has_a_bounded_actionable_failure(self):
+        with patch.object(module, "build_opener") as opener:
+            opener.return_value.open.return_value.__enter__.return_value.read.return_value = b'x' * ((8 << 20) + 1)
+            with self.assertRaisesRegex(RuntimeError, "8MiB response budget"):
+                module.Azure("https://dev.azure.com/example", "token").request("GET", "_apis/projects/LASA")
+            opener.return_value.open.return_value.__enter__.return_value.read.assert_called_once_with((8 << 20) + 1)
+
+    def test_real_http_client_never_requests_redirect_destination(self):
+        observed = []
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                observed.append(self.path)
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{self.server.server_port}/destination?session=PRIVATE_SESSION")
+                self.end_headers()
+            def log_message(self, *_):
+                pass
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            request = Request(f"http://127.0.0.1:{server.server_port}/original", headers={"Authorization": "Bearer fixture-only"})
+            with self.assertRaises(module.AzureRedirectError):
+                module.build_opener(module.NoRedirect).open(request, timeout=5)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=5)
+        self.assertEqual(observed, ["/original"])
 
 
 if __name__ == "__main__":

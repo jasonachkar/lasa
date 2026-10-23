@@ -88,3 +88,19 @@ A persistent denial is an account/authorization boundary:
 - If a different project name is intended, set `LASA_AZURE_PROJECT` to that private project's actual name. A missing project is created only after organization authentication is verified; a forbidden project is never treated as absent.
 
 No automatic membership/role grants or policy changes are attempted. Authentication failure stops before publishing key updates, secret export, pipeline mutation or publisher switching. A later API permission failure still names the rejected operation/status. The tests cover read-only preflight, project/organization denial, missing/anonymous access, explicit sign-in, tenant hints/override, redaction and non-authentication failures. Live authorization must be verified by the owner's account.
+
+### A subscription choice changes 403 into a sign-in redirect
+
+A tenant-level account is sufficient for Azure DevOps; no paid Azure subscription is required. Choosing an Azure subscription selects CLI context, not DevOps organization membership. An organization-named tenant and a changed HTTP response are not proof of authorized project access.
+
+To use a particular tenant without accidentally selecting an unrelated default subscription:
+
+```bash
+LASA_AZURE_TENANT=YOUR_ORGANIZATION_TENANT_ID bash scripts/bootstrap-azure.sh --reauth
+```
+
+The API client now sends `Accept: application/json` and `X-TFS-FedAuthRedirect: Suppress`. This asks Azure for a machine-readable authentication failure instead of a browser sign-in redirect. Redirects are still blocked: tokens are never forwarded to the destination. The error classifies known Microsoft sign-in hosts without displaying redirect paths, query strings, session values or response bodies. Unexpected redirects remain fatal and do not trigger authentication retries.
+
+If Azure ignores suppression, a Microsoft sign-in redirect is handled as an authentication failure during the read-only preflight, never as a missing project. Open the organization URL once in the browser using the intended Microsoft identity and complete any required DevOps profile/organization sign-in. A personal and a work account can share a displayed email address; use the identity that actually opens the organization. Provider profile/terms acceptance cannot be supplied by a script.
+
+Known API codes are retained through a closed allowlist: `TF401444` identifies the required initial browser sign-in; `TF400813` and `VS30063` indicate authorization failure. Other body text stays withheld. HTML/sign-in responses and oversized responses get explicit diagnostics instead of raw JSON parser failures. If access still fails after browser sign-in, check the organization's linked tenant, account membership and sign-in/API policies with its administrator. Existing signing keys remain unchanged on every failed preflight.

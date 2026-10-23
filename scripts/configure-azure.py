@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
@@ -18,18 +18,65 @@ def command(*args, **kwargs):
     return subprocess.check_output(args, text=True, **kwargs).strip()
 
 
-class NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise RuntimeError("Azure API redirected the authenticated request; check the organization URL and sign-in tenant")
-
-
 class AzureHTTPError(RuntimeError):
-    def __init__(self, method, path, status, tenant=None):
+    def __init__(self, method, path, status, tenant=None, service_code=None):
         self.status = status
         self.tenant = tenant
+        self.service_code = service_code
+        detail = ""
+        if service_code == "TF401444":
+            detail = " Azure DevOps requires this account to complete its first browser sign-in to the organization."
+        elif service_code in ("TF400813", "VS30063"):
+            detail = " Azure DevOps did not authorize this account for the requested resource."
         super().__init__(f"Azure {method} {path.split('?')[0]} returned HTTP {status}. "
+                         + (f"Service code: {service_code}." if service_code else "") + detail + " "
                          "Check organization membership, project administration and token/tenant access. "
                          "The response body is suppressed to protect secrets.")
+
+
+class AzureRedirectError(AzureHTTPError):
+    def __init__(self, method, path, status, target, tenant=None):
+        super().__init__(method, path, status, tenant)
+        try:
+            destination = urlsplit(target)
+            host = destination.hostname or ""
+            login_host = (host in ("login.microsoftonline.com", "login.windows.net", "login.live.com", "aex.dev.azure.com")
+                          or host.endswith(".vssps.visualstudio.com"))
+            self.authentication = destination.scheme == "https" and login_host
+            safe_host = host if re.fullmatch(r"[A-Za-z0-9.-]{1,253}", host) else "unrecognized host"
+        except ValueError:
+            self.authentication, safe_host = False, "unrecognized host"
+        kind = "Microsoft sign-in redirect" if self.authentication else "unexpected redirect"
+        self.args = (f"Azure {method} {path.split('?')[0]} returned HTTP {status}: {kind} to {safe_host}. "
+                     "The redirect was not followed and no token was forwarded. Redirect paths, query strings and response bodies are withheld. "
+                     + ("Open the organization in your browser with the selected Microsoft account and complete any required "
+                        "Azure DevOps profile/organization sign-in before retrying." if self.authentication else
+                        "Check the organization URL and network/proxy configuration."),)
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # A login URL can contain session values. Classify it; never follow or print it.
+        path = urlsplit(req.full_url).path
+        raise AzureRedirectError(req.get_method(), path, code, newurl, tenant_challenge(headers))
+
+
+def access_denial(error):
+    return error.status in (401, 403) or isinstance(error, AzureRedirectError) and error.authentication
+
+
+def azure_service_code(error):
+    # Extract only a closed set of actionable service codes, never arbitrary error text.
+    if error.fp is None:
+        return None
+    try:
+        body = error.read(65536).decode("utf-8", errors="replace")
+    except (OSError, ValueError):
+        return None  # Optional error details must not hide the original HTTP status.
+    for code in ("TF401444", "TF400813", "VS30063"):
+        if re.search(r"\b" + code + r"\b", body):
+            return code
+    return None
 
 
 def tenant_challenge(headers):
@@ -52,15 +99,22 @@ class Azure:
         url = self.base + "/" + path.lstrip("/")
         url += ("&" if "?" in url else "?") + "api-version=" + version
         request = Request(url, data=None if data is None else json.dumps(data).encode(), method=method,
-                          headers={"Authorization": "Bearer " + self.token, "Content-Type": "application/json"})
+                          headers={"Authorization": "Bearer " + self.token, "Content-Type": "application/json",
+                                   "Accept": "application/json", "X-TFS-FedAuthRedirect": "Suppress"})
         try:
             with build_opener(NoRedirect).open(request, timeout=60) as response:
-                content = response.read()
-                return json.loads(content) if content else {}
+                content = response.read((8 << 20) + 1)
+                if len(content) > 8 << 20:
+                    raise RuntimeError(f"Azure {method} {path.split('?')[0]} exceeded the 8MiB response budget; response withheld.")
+                try:
+                    return json.loads(content) if content else {}
+                except (ValueError, UnicodeError):
+                    raise RuntimeError(f"Azure {method} {path.split('?')[0]} returned a non-JSON response. "
+                                       "Check organization browser sign-in and network/proxy access; response body withheld.") from None
         except HTTPError as error:
             if missing and error.code == 404:
                 return None
-            raise AzureHTTPError(method, path, error.code, tenant_challenge(error.headers)) from None
+            raise AzureHTTPError(method, path, error.code, tenant_challenge(error.headers), azure_service_code(error)) from None
         except (URLError, TimeoutError) as error:
             raise RuntimeError(f"Azure {method} request failed ({type(error).__name__}); check connectivity and retry.") from None
 
@@ -115,7 +169,7 @@ def authenticated_azure(organization, project_name, tenant=None, reauthenticate=
                 print("Azure project access verified: " + api.base + "/" + quote(project_name, safe=""), flush=True)
                 return api
         except AzureHTTPError as error:
-            if error.status not in (401, 403):
+            if not access_denial(error):
                 raise
             project_error = error
         try:
@@ -125,7 +179,7 @@ def authenticated_azure(organization, project_name, tenant=None, reauthenticate=
                 "00000000-0000-0000-0000-000000000000", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
                                        and identity.get("isActive") is not False)
         except AzureHTTPError as error:
-            if error.status not in (401, 403):
+            if not access_denial(error):
                 raise
             organization_access = False
             organization_error = error
@@ -159,7 +213,9 @@ def authenticated_azure(organization, project_name, tenant=None, reauthenticate=
                                        "Check account membership and tenant sign-in policy.") from None
             continue
         status = project_error.status if project_error else (organization_error.status if organization_error else "unknown")
+        reason = str(organization_error or project_error) if organization_error or project_error else "The organization returned no authenticated identity."
         raise RuntimeError(f"Azure organization access could not be verified (HTTP {status}): {api.base}. "
+                           f"Observed response: {reason} "
                            "A cached Azure CLI token does not establish Azure DevOps membership. "
                            "Open this organization in your browser and use that same Microsoft account with "
                            "bash scripts/bootstrap-azure.sh --reauth. If access is still denied, its administrator must check "
