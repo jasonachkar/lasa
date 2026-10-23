@@ -223,13 +223,19 @@ elif name == "gh" and sys.argv[1:] == ["auth", "token"]:
                 path.chmod(0o700)
             environment = dict(os.environ, AZURE_DEVOPS_EXT_PAT=self.secret, FIXTURE_ROOT=directory,
                                FIXTURE_LOG=str(log), PATH=str(binary) + ":/usr/bin:/bin")
-            subprocess.run(["/bin/bash", str(script), "--devops-pat", "--configure-only"],
-                           env=environment, text=True, capture_output=True, check=True, timeout=10)
-            observed = [json.loads(line) for line in log.read_text().splitlines()]
-            self.assertTrue(any(item["name"] == "python3.12" and item["pat_present"] for item in observed))
-            self.assertTrue(all(not item["pat_present"] for item in observed if item["name"] != "python3.12"))
-            self.assertFalse(any("azure-cli" in item["args"] for item in observed))
-            self.assertNotIn(self.secret, log.read_text())
+            for operation in ("--configure-only", "--check"):
+                with self.subTest(operation=operation):
+                    log.write_text("")
+                    subprocess.run(["/bin/bash", str(script), "--devops-pat", operation],
+                                   env=environment, text=True, capture_output=True, check=True, timeout=10)
+                    observed = [json.loads(line) for line in log.read_text().splitlines()]
+                    self.assertTrue(any(item["name"] == "python3.12" and item["pat_present"] for item in observed))
+                    self.assertTrue(all(not item["pat_present"] for item in observed if item["name"] != "python3.12"))
+                    self.assertFalse(any("azure-cli" in item["args"] for item in observed))
+                    self.assertNotIn(self.secret, log.read_text())
+                    if operation == "--check":
+                        self.assertFalse(any(item["name"] in ("gh", "gpg") for item in observed))
+                        self.assertFalse(any("fetch" in item["args"] for item in observed))
 
 
 if __name__ == "__main__":

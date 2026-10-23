@@ -12,6 +12,8 @@ bash scripts/bootstrap-azure.sh
 
 The defaults are organization `https://dev.azure.com/jasonachkardiab`, private project `LASA`, pipeline `LASA`, source `jasonachkar/lasa`, and public distribution `jasonachkar/homebrew-lasa`. The command installs missing Azure CLI, GitHub CLI, GnuPG and Python tools through the existing Homebrew installation. It opens account sign-in when required, creates/reuses the project and GitHub service connection, installs encrypted pipeline secrets, authorizes only this pipeline to use its connection, switches the publishing provider, and queues the current branch. It does not merge a feature branch. Pushes to `main` subsequently trigger verification and releases automatically.
 
+The wrapper prints the checked-out bootstrap revision and the Python script prints its selected authentication mode. `--reauth` is spelled with two hyphens and `reauth` in that order. A mismatch with the remote branch asks you to pull remote changes or push your intended commit before setup.
+
 Use `--configure-only` to avoid queuing and `--reauth` to open a fresh Azure sign-in without logging out other cached accounts. Those flags can be combined. Alternatively, use [`--devops-pat`](#use-an-azure-devops-pat) when the browser owner can access DevOps but CLI sign-in repeatedly fails; this mode skips Azure CLI and tenant selection. It can be combined with `--configure-only`, but not `--reauth`. `LASA_AZURE_ORGANIZATION` and `LASA_AZURE_PROJECT` override the organization/project; `LASA_AZURE_TENANT` selects its tenant ID/domain in CLI mode only. Azure project/organization access is checked before preparing, registering or exporting publishing keys. The source, distribution and domain are intentionally fixed to this deployment. The bootstrap checks the checkout matches its remote branch before configuring anything. Existing keys are reused from `~/Library/Application Support/lasa-distribution/jasonachkar_lasa`; a missing state backup stops setup rather than rotating keys and breaking installations. It does not change DNS, nameservers, or the unrelated `cybersecurity-writeups` repository or `docs.jasonachkardiab.com` domain.
 
 ## Publish the website immediately without a build runner
@@ -68,6 +70,29 @@ This mode does not install or invoke Azure CLI and ignores `LASA_AZURE_TENANT`. 
 The PAT stays in bootstrap process memory and is not saved to local state, GitHub secrets, the Azure GitHub service connection or Azure pipeline variables. Those retain the separate GitHub/signing/deploy credentials described above. If supplied by an existing local secret-manager integration, `AZURE_DEVOPS_EXT_PAT` is accepted only in explicit PAT mode; the wrapper withholds it from Git, Homebrew and GitHub CLI and Python removes it from its environment before starting any child process. Interactive input requires a terminal and refuses an echoing fallback. Do not type an environment assignment containing the PAT into shell history.
 
 After successful setup, revoke this bootstrap PAT on the same browser page; the pipeline does not depend on it. Keep the separate GitHub credential valid for source/release access. Interrupted or failed setup can be retried with a valid bootstrap PAT without rotating the saved signing/deploy keys. PAT-denial diagnostics do not loop through CLI sign-in or tenant retries.
+
+## Diagnose access without publishing changes
+
+From anywhere inside the checkout:
+
+```bash
+bash "$(git rev-parse --show-toplevel)/scripts/bootstrap-azure.sh" --check --devops-pat
+```
+
+For the existing CLI session, omit `--devops-pat`; add `--reauth` only when you want fresh CLI sign-in. `--check` sends only GET requests to Azure: it verifies project/organization access and reads the queue, GitHub connection and LASA build-definition collections. It does not read publishing keys, prepare Alpine keys, authenticate GitHub, create/update resources, queue builds or switch publishing providers. It works without the private publishing state and without a clean/pushed checkout. The wrapper may install missing local Azure/Python tools through Homebrew. Read-only success does not prove write permissions or available hosted parallel jobs. The failed operation, HTTP status and API revision identify where a check stops; response bodies and credentials remain withheld.
+
+Both entrypoints now accept the same flags. With prerequisites already installed, these commands also work directly from `scripts/`:
+
+```bash
+python3 configure-azure.py --check --devops-pat
+python3 configure-azure.py --devops-pat
+```
+
+Direct Python invocation does not install tools or perform the wrapper's Git checkout verification; use a clean, pushed checkout for normal setup. It reads the existing GitHub CLI token when `LASA_GITHUB_TOKEN` is unset, before key preparation/export. A missing GitHub credential gets an explicit authentication diagnostic. Running `python3 configure-azure.py` **without flags** still selects Azure CLI authentication, so it does not exercise PAT recovery.
+
+The HTTP client follows [Microsoft's Python SDK authentication headers](https://github.com/microsoft/azure-devops-python-api/blob/86c9a559fc4ab309df21e674b236a542f9e77f89/azure-devops/azure/devops/client.py), including `X-VSS-ForceMsaPassThrough: true` for personal Microsoft accounts and federated-redirect suppression. It uses the SDK's `7.1-preview.1` connection/agent-queue/pipeline-permission revisions and `7.1-preview.4` service-endpoint revision; published core/build contracts use `7.1`. These API revision names describe Azure's endpoints, not LASA's product status. The client accepts a tenant GUID from Azure's `X-VSS-ResourceTenant` header as well as the trusted Microsoft `WWW-Authenticate` challenge. Explicit tenant choices still take precedence, and PAT mode never retries through CLI tenants.
+
+HTTP 400 points to an API version/payload problem, 429 to throttling and 5xx to a service failure; these are no longer all explained as membership failures. Invalid JSON shapes produce a bounded, redacted API diagnostic. Missing, rejected and redirected HTTP responses close their underlying streams. Before updating a GitHub service connection, normal setup validates the hosted queue and refuses to overwrite an unrelated existing pipeline.
 
 ## Costs, consent and failure recovery
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Owner-local Azure bootstrap. Tokens stay in memory; API error bodies are redacted."""
+import argparse
 from base64 import b64encode
 import getpass
 import json
@@ -16,13 +17,58 @@ from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
+def api_version(path):
+    # Match Microsoft's v7_1 SDK bindings for endpoints that require preview revisions.
+    # Core/build APIs have published 7.1 contracts; each other family is versioned separately.
+    resource = path.split("?", 1)[0].split("_apis/", 1)[-1].lower()
+    if resource == "connectiondata" or resource.startswith(("distributedtask/", "pipelines/pipelinepermissions/")):
+        return "7.1-preview.1"
+    if resource.startswith("serviceendpoint/"):
+        return "7.1-preview.4"
+    return "7.1"
+
+
 def command(*args, **kwargs):
     # Never print subprocess stdout: it can contain credentials or private keys.
     return subprocess.check_output(args, text=True, **kwargs).strip()
 
 
+def cli_options(argv=None):
+    parser = argparse.ArgumentParser(description="Configure LASA Azure publishing, or check access without publishing changes.")
+    operation = parser.add_mutually_exclusive_group()
+    operation.add_argument("--check", action="store_true", default=os.environ.get("LASA_AZURE_CHECK") == "1",
+                           help="read-only Azure diagnostics; no publishing state or GitHub credentials required")
+    operation.add_argument("--configure-only", action="store_true", default=os.environ.get("LASA_AZURE_CONFIGURE_ONLY") == "1",
+                           help="configure the pipeline without queuing a run")
+    authentication = parser.add_mutually_exclusive_group()
+    authentication.add_argument("--reauth", action="store_true", default=os.environ.get("LASA_AZURE_REAUTH") == "1",
+                                help="open a fresh Azure CLI browser sign-in")
+    authentication.add_argument("--devops-pat", action="store_true", default=os.environ.get("LASA_AZURE_DEVOPS_PAT") == "1",
+                                help="use the organization owner's short-lived PAT, entered in a hidden prompt")
+    options = parser.parse_args(argv)
+    if options.reauth and options.devops_pat:
+        parser.error("choose --reauth or --devops-pat, not both")
+    if options.check and options.configure_only:
+        parser.error("choose --check or --configure-only, not both")
+    for name in ("check", "configure_only", "reauth", "devops_pat"):
+        os.environ["LASA_AZURE_" + name.upper()] = "1" if getattr(options, name) else "0"
+
+
+def github_token():
+    token = os.environ.get("LASA_GITHUB_TOKEN")
+    if not token:
+        try:
+            token = command("gh", "auth", "token", "--hostname", "github.com", stderr=subprocess.DEVNULL)
+        except (OSError, subprocess.CalledProcessError):
+            raise RuntimeError("GitHub credentials are unavailable. Run gh auth login --hostname github.com, "
+                               "then rerun setup. No publishing keys or pipeline configuration were changed.") from None
+    if not token:
+        raise RuntimeError("GitHub CLI returned an empty token; authenticate with gh before setup. No publishing keys were changed.")
+    return token
+
+
 class AzureHTTPError(RuntimeError):
-    def __init__(self, method, path, status, tenant=None, service_code=None, *, pat=False):
+    def __init__(self, method, path, status, tenant=None, service_code=None, *, pat=False, version=None):
         self.status = status
         self.tenant = tenant
         self.service_code = service_code
@@ -34,7 +80,14 @@ class AzureHTTPError(RuntimeError):
         recovery = ("Check the Azure DevOps PAT's expiry, organization and scopes, and its owner's organization/project permissions. "
                     "Required bootstrap scopes are listed in docs/maintainer/azure.md#use-an-azure-devops-pat. " if pat else
                     "Check organization membership, project administration and token/tenant access. ")
+        if status == 400:
+            recovery = "Azure rejected the API version or request payload; this is an API contract failure, not evidence of missing organization membership. "
+        elif status == 429:
+            recovery = "Azure throttled this request; wait before retrying setup. "
+        elif status >= 500:
+            recovery = "Azure reported a service failure; check Azure DevOps service status and retry. "
         super().__init__(f"Azure {method} {path.split('?')[0]} returned HTTP {status}. "
+                         + (f"API version: {version}. " if version else "")
                          + (f"Service code: {service_code}." if service_code else "") + detail + " "
                          + recovery + "The response body is suppressed to protect secrets.")
 
@@ -63,6 +116,8 @@ class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         # A login URL can contain session values. Classify it; never follow or print it.
         path = urlsplit(req.full_url).path
+        if fp is not None:
+            fp.close()
         raise AzureRedirectError(req.get_method(), path, code, newurl, tenant_challenge(headers))
 
 
@@ -87,6 +142,10 @@ def azure_service_code(error):
 def tenant_challenge(headers):
     # Retain only a tenant GUID from Microsoft's fixed authentication authorities.
     # Never display the complete authentication header or arbitrary server text.
+    if headers:
+        tenant = headers.get("X-VSS-ResourceTenant", "").strip()
+        if re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", tenant):
+            return tenant.lower()
     challenge = headers.get("WWW-Authenticate", "") if headers else ""
     match = re.search(r"https://(?:login\.windows\.net|login\.microsoftonline\.com)/"
                       r"([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})(?:[/\"\s]|$)", challenge)
@@ -101,28 +160,39 @@ class Azure:
         self.token = token
         self.pat = pat
 
-    def request(self, method, path, data=None, *, missing=False, version="7.1"):
+    def request(self, method, path, data=None, *, missing=False, version=None):
+        version = version or api_version(path)
         url = self.base + "/" + path.lstrip("/")
         url += ("&" if "?" in url else "?") + "api-version=" + version
         authorization = ("Basic " + b64encode((":" + self.token).encode("ascii")).decode("ascii")
                          if self.pat else "Bearer " + self.token)
         request = Request(url, data=None if data is None else json.dumps(data).encode(), method=method,
                           headers={"Authorization": authorization, "Content-Type": "application/json",
-                                   "Accept": "application/json", "X-TFS-FedAuthRedirect": "Suppress"})
+                                   "Accept": "application/json", "X-TFS-FedAuthRedirect": "Suppress",
+                                   "X-VSS-ForceMsaPassThrough": "true"})
         try:
             with build_opener(NoRedirect).open(request, timeout=60) as response:
                 content = response.read((8 << 20) + 1)
                 if len(content) > 8 << 20:
                     raise RuntimeError(f"Azure {method} {path.split('?')[0]} exceeded the 8MiB response budget; response withheld.")
                 try:
-                    return json.loads(content) if content else {}
+                    result = json.loads(content) if content else {}
                 except (ValueError, UnicodeError):
                     raise RuntimeError(f"Azure {method} {path.split('?')[0]} returned a non-JSON response. "
                                        "Check organization browser sign-in and network/proxy access; response body withheld.") from None
+                if not isinstance(result, dict):
+                    raise RuntimeError(f"Azure {method} {path.split('?')[0]} returned an unexpected JSON shape; "
+                                       "expected an API object. Response body withheld.")
+                return result
         except HTTPError as error:
-            if missing and error.code == 404:
-                return None
-            raise AzureHTTPError(method, path, error.code, tenant_challenge(error.headers), azure_service_code(error), pat=self.pat) from None
+            try:
+                if missing and error.code == 404:
+                    return None
+                safe_error = AzureHTTPError(method, path, error.code, tenant_challenge(error.headers), azure_service_code(error),
+                                            pat=self.pat, version=version)
+            finally:
+                error.close()
+            raise safe_error from None
         except (URLError, TimeoutError) as error:
             raise RuntimeError(f"Azure {method} request failed ({type(error).__name__}); check connectivity and retry.") from None
 
@@ -299,6 +369,21 @@ def configure(api, project_name, secrets, public, branch, configure_only):
     if project.get("visibility") != "private":
         raise ValueError("The existing LASA project is not private; choose a private project with LASA_AZURE_PROJECT")
     prefix = quote(project["id"], safe="") + "/_apis/"
+    # Validate existing resources before creating/updating a credential-bearing connection.
+    queues = api.request("GET", prefix + "distributedtask/queues")["value"]
+    queues = [queue for queue in queues if queue.get("pool", {}).get("isHosted") and queue["name"] == "Azure Pipelines"]
+    if len(queues) != 1:
+        raise ValueError("The project has no unique Microsoft-hosted 'Azure Pipelines' queue. "
+                         "Enable Azure Pipelines/hosted-agent access for this organization, then rerun.")
+    definitions = api.request("GET", prefix + "build/definitions?name=LASA")["value"]
+    if len(definitions) > 1:
+        raise ValueError("Multiple LASA build definitions exist; refusing an ambiguous update")
+    definition = {}
+    if definitions:
+        definition = api.request("GET", prefix + "build/definitions/" + str(definitions[0]["id"]))
+        if (definition.get("repository", {}).get("name") != "jasonachkar/lasa"
+                or definition.get("process", {}).get("yamlFilename") != "azure-pipelines.yml"):
+            raise ValueError("Existing LASA pipeline belongs to another repository or YAML path; refusing to overwrite")
     endpoints = api.request("GET", prefix + "serviceendpoint/endpoints?type=github")["value"]
     matches = [item for item in endpoints if item["name"] == "LASA-GitHub"]
     if len(matches) > 1:
@@ -316,20 +401,6 @@ def configure(api, project_name, secrets, public, branch, configure_only):
         endpoint = api.request("PUT", "_apis/serviceendpoint/endpoints/" + endpoint["id"], endpoint)
     else:
         endpoint = api.request("POST", "_apis/serviceendpoint/endpoints", endpoint)
-    queues = api.request("GET", prefix + "distributedtask/queues")["value"]
-    queues = [queue for queue in queues if queue.get("pool", {}).get("isHosted") and queue["name"] == "Azure Pipelines"]
-    if len(queues) != 1:
-        raise ValueError("The project has no unique Microsoft-hosted 'Azure Pipelines' queue. "
-                         "Enable Azure Pipelines/hosted-agent access for this organization, then rerun.")
-    definitions = api.request("GET", prefix + "build/definitions?name=LASA")["value"]
-    if len(definitions) > 1:
-        raise ValueError("Multiple LASA build definitions exist; refusing an ambiguous update")
-    definition = {}
-    if definitions:
-        definition = api.request("GET", prefix + "build/definitions/" + str(definitions[0]["id"]))
-        if (definition.get("repository", {}).get("name") != "jasonachkar/lasa"
-                or definition.get("process", {}).get("yamlFilename") != "azure-pipelines.yml"):
-            raise ValueError("Existing LASA pipeline belongs to another repository or YAML path; refusing to overwrite")
     variables = {name: {"value": value, "isSecret": False} for name, value in public.items()}
     variables.update({name: {"value": value, "isSecret": True} for name, value in secrets.items()})
     definition.update({"name": "LASA", "type": "build", "queueStatus": "enabled",
@@ -360,6 +431,23 @@ def configure(api, project_name, secrets, public, branch, configure_only):
     print("Trusted branch runs publish customer docs and verify code. Stable releases publish automatically on main.")
 
 
+def check_configuration(api, project_name):
+    project = api.request("GET", "_apis/projects/" + quote(project_name, safe=""), missing=True)
+    if project is None:
+        print("Organization access verified. The private project does not exist; normal setup will create it.", flush=True)
+        return
+    prefix = quote(project["id"], safe="") + "/_apis/"
+    for label, path in (("hosted queues", "distributedtask/queues"),
+                        ("GitHub service connections", "serviceendpoint/endpoints?type=github"),
+                        ("LASA pipeline definitions", "build/definitions?name=LASA")):
+        result = api.request("GET", prefix + path)
+        if not isinstance(result.get("value"), list):
+            raise RuntimeError("Azure GET " + prefix + path.split("?")[0] + " returned an invalid collection; response body withheld.")
+        print("Read access verified: " + label, flush=True)
+    print("Azure read-only checks passed. No publishing state was read or changed and no remote configuration was written. "
+          "Administrative write permissions and hosted-job capacity are checked only when setup/a run needs them.", flush=True)
+
+
 def main():
     # Remove injected PAT before any child process (including the browser and gh) starts.
     existing_pat = os.environ.pop("AZURE_DEVOPS_EXT_PAT", None)
@@ -367,10 +455,18 @@ def main():
     reauthenticate = os.environ.get("LASA_AZURE_REAUTH") == "1"
     if pat_mode and reauthenticate:
         raise ValueError("Choose --reauth or --devops-pat, not both")
+    print("Azure authentication mode: " + ("organization-owner PAT" if pat_mode else "Azure CLI"), flush=True)
     organization = os.environ.get("LASA_AZURE_ORGANIZATION", "https://dev.azure.com/jasonachkardiab")
     project = os.environ.get("LASA_AZURE_PROJECT", "LASA")
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9 _-]{0,63}", project):
         raise ValueError("Invalid LASA_AZURE_PROJECT name")
+    if os.environ.get("LASA_AZURE_CHECK") == "1":
+        if pat_mode:
+            api = authenticated_azure(organization, project, personal_access_token=read_devops_pat(organization, existing_pat))
+        else:
+            api = authenticated_azure(organization, project, os.environ.get("LASA_AZURE_TENANT"), reauthenticate)
+        check_configuration(api, project)
+        return
     state = Path.home() / "Library/Application Support/lasa-distribution/jasonachkar_lasa"
     for path in (state / "deploy-key", state / "signing-fingerprint", state / "gnupg"):
         if not path.exists():
@@ -382,6 +478,7 @@ def main():
         api = authenticated_azure(organization, project, personal_access_token=read_devops_pat(organization, existing_pat))
     else:
         api = authenticated_azure(organization, project, os.environ.get("LASA_AZURE_TENANT"), reauthenticate)
+    token = github_token()  # Direct Python invocation must work without wrapper-only environment setup.
     subprocess.run(["bash", str(Path(__file__).resolve().parent / "prepare-apk-key.sh"), str(state), "jasonachkar/lasa"], check=True)
     # Short alias avoids macOS GnuPG Unix socket length limits.
     with tempfile.TemporaryDirectory(prefix="lasa-gpg-", dir="/tmp") as temp:
@@ -394,7 +491,7 @@ def main():
                            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if not key:
         raise ValueError("Local signing key could not be exported; restore your private state backup")
-    secrets = {"GH_TOKEN": os.environ["LASA_GITHUB_TOKEN"], "APT_SIGNING_KEY": key,
+    secrets = {"GH_TOKEN": token, "APT_SIGNING_KEY": key,
                "DISTRIBUTION_DEPLOY_KEY": (state / "deploy-key").read_text(),
                "APK_SIGNING_KEY": (state / "apk-signing-key.pem").read_text()}
     public = {"APT_SIGNING_FINGERPRINT": fingerprint, "APK_PUBLIC_KEY_SHA256": (state / "apk-public-key.sha256").read_text().strip(), "DISTRIBUTION_REPOSITORY": "jasonachkar/homebrew-lasa",
@@ -407,6 +504,7 @@ def main():
 
 if __name__ == "__main__":
     try:
+        cli_options()
         main()
     except (ValueError, RuntimeError, KeyError, OSError, subprocess.CalledProcessError) as error:
         # CalledProcessError stores arguments; credential-bearing commands never use args for values.

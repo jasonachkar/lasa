@@ -81,16 +81,18 @@ class ConfigureTests(unittest.TestCase):
         self.assertFalse(any("build/builds" in path for _, path, _ in api.calls))
 
     def test_unavailable_hosted_pool_does_not_switch_provider(self):
+        api = FakeAzure(hosted=False)
         with self.assertRaisesRegex(ValueError, "hosted"):
-            self.run_configure(FakeAzure(hosted=False))
+            self.run_configure(api)
         self.run_command.assert_not_called()
+        self.assertTrue(all(method == "GET" for method, _, _ in api.calls))
 
     def test_refuses_to_overwrite_unrelated_pipeline(self):
         api = FakeAzure(existing=True)
         api.definition["repository"]["name"] = "other/repo"
         with self.assertRaisesRegex(ValueError, "another repository"):
             self.run_configure(api)
-        self.assertFalse(any(method == "PUT" and "build/definitions" in path for method, path, _ in api.calls))
+        self.assertTrue(all(method == "GET" for method, _, _ in api.calls))
 
     def test_api_errors_suppress_secret_response_bodies(self):
         api = module.Azure("https://dev.azure.com/example", "private-token")
@@ -111,7 +113,7 @@ class ConfigureTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "403"):
             self.run_configure(api)
         self.run_command.assert_not_called()
-        self.assertFalse(any("build/definitions" in path for _, path, _ in api.calls))
+        self.assertFalse(any(method != "GET" and "build/definitions" in path for method, path, _ in api.calls))
 
     def test_rejects_non_azure_credential_destinations(self):
         for url in ("http://dev.azure.com/example", "https://evil.test/example", "https://dev.azure.com/example/extra"):
