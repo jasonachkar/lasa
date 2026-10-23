@@ -32,5 +32,6 @@ export LASA_GITHUB_TOKEN
 if [ -z "${LASA_GITHUB_TOKEN:-}" ]; then LASA_GITHUB_TOKEN=$(gh auth token); fi
 export LASA_AZURE_CONFIGURE_ONLY=0
 if [ "${1:-}" = --configure-only ]; then export LASA_AZURE_CONFIGURE_ONLY=1; fi
+bash scripts/prepare-apk-key.sh "$HOME/Library/Application Support/lasa-distribution/jasonachkar_lasa" jasonachkar/lasa
 "$(brew --prefix python@3.12)/bin/python3.12" scripts/configure-azure.py
 unset LASA_GITHUB_TOKEN

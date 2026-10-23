@@ -62,11 +62,16 @@ jobs:
           fi
       - name: Build packages, archives, notices and SBOMs
         if: steps.existing.outputs.published != 'true'
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          APT_SIGNING_FINGERPRINT: ${{ vars.APT_SIGNING_FINGERPRINT }}
+          APK_SIGNING_KEY: ${{ secrets.APK_SIGNING_KEY }}
+          APK_PUBLIC_KEY_SHA256: ${{ vars.APK_PUBLIC_KEY_SHA256 }}
         run: |
-          make packages
           version=$(make -s print-version)
+          bash scripts/build-signed-packages.sh "$version"
           tar --sort=name --mtime="@$(git show -s --format=%ct HEAD)" --owner=0 --group=0 --numeric-owner -C dist -cf - licenses | gzip -n > "dist/lasa-$version-licenses.tar.gz"
-          (cd dist && sha256sum -- lasa-*-linux-amd64 lasa-*-linux-arm64 *.deb *.cdx.json *.tar.gz > SHA256SUMS)
+          bash scripts/write-release-manifest.sh "$version"
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         if: steps.existing.outputs.published != 'true'
         with:
@@ -74,6 +79,10 @@ jobs:
             dist/lasa-*-linux-amd64
             dist/lasa-*-linux-arm64
             dist/*.deb
+            dist/*.rpm
+            dist/*.pkg.tar.zst
+            dist/*.pkg.tar.zst.sig
+            dist/*.apk
             dist/*.cdx.json
             dist/*.tar.gz
             dist/SHA256SUMS
@@ -87,7 +96,7 @@ jobs:
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes
           fi
-          gh release upload "$RELEASE_TAG" dist/lasa-*-linux-amd64 dist/lasa-*-linux-arm64 dist/*.deb dist/*.cdx.json dist/*.tar.gz dist/SHA256SUMS --clobber
+          gh release upload "$RELEASE_TAG" dist/lasa-*-linux-amd64 dist/lasa-*-linux-arm64 dist/*.deb dist/*.rpm dist/*.pkg.tar.zst dist/*.pkg.tar.zst.sig dist/*.apk dist/*.cdx.json dist/*.tar.gz dist/SHA256SUMS --clobber
           gh release edit "$RELEASE_TAG" --draft=false
   distribution:
     needs: release
@@ -106,11 +115,13 @@ jobs:
       - name: Install repository indexing tools
         run: |
           sudo apt-get update -o APT::Update::Error-Mode=any
-          sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg
-      - name: Publish signed APT repository and Linux Homebrew formula
+          sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg createrepo-c rpm pacman-package-manager makepkg libarchive-tools gettext-base zstd
+      - name: Publish signed Linux repositories and Homebrew formula
         env:
           GH_TOKEN: ${{ github.token }}
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          APK_SIGNING_KEY: ${{ secrets.APK_SIGNING_KEY }}
+          APK_PUBLIC_KEY_SHA256: ${{ vars.APK_PUBLIC_KEY_SHA256 }}
           DISTRIBUTION_DEPLOY_KEY: ${{ secrets.DISTRIBUTION_DEPLOY_KEY }}
           APT_SIGNING_FINGERPRINT: ${{ vars.APT_SIGNING_FINGERPRINT }}
           DISTRIBUTION_REPOSITORY: ${{ vars.DISTRIBUTION_REPOSITORY }}

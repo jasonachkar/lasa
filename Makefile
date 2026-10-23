@@ -60,7 +60,7 @@ sbom: release-binaries notices
 	cyclonedx-gomod bin -json -std -version v$(VERSION) -output dist/lasa-arm64.cdx.json dist/lasa-$(VERSION)-linux-arm64
 packages: sbom
 	bash scripts/package-release.sh $(VERSION)
-	cd dist && sha256sum -- lasa-$(VERSION)-linux-amd64 lasa-$(VERSION)-linux-arm64 lasa_$(VERSION)_*.deb lasa-$(VERSION)-linux-*.tar.gz lasa-*.cdx.json > SHA256SUMS
+	bash scripts/write-release-manifest.sh $(VERSION)
 print-version:
 	@printf '%s\n' '$(VERSION)'
 clean:

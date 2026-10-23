@@ -38,9 +38,9 @@ elif ! grep -q 'HTTP 404' "$temp/release-error"; then
 fi
 # Remove only generated output so old versions cannot enter this manifest.
 rm -rf dist
-make packages
+bash scripts/build-signed-packages.sh "$VERSION"
 tar --sort=name --mtime="@$(git show -s --format=%ct HEAD)" --owner=0 --group=0 --numeric-owner -C dist -cf - licenses | gzip -n > "dist/lasa-$VERSION-licenses.tar.gz"
-(cd dist && sha256sum -- lasa-*-linux-amd64 lasa-*-linux-arm64 *.deb *.cdx.json *.tar.gz > SHA256SUMS)
+bash scripts/write-release-manifest.sh "$VERSION"
 gpg --batch --yes --armor --local-user "$APT_SIGNING_FINGERPRINT!" --detach-sign dist/SHA256SUMS
 gpg --batch --armor --export "$APT_SIGNING_FINGERPRINT" > dist/release-signing-key.asc
 if git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
@@ -53,7 +53,7 @@ if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
 fi
 # Recheck immediately before clobbering a repairable draft; published bytes are protected.
 test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq .draft)" = true || { echo 'Release became published while building; rerun to reuse its assets.' >&2; exit 1; }
-gh release upload "$RELEASE_TAG" dist/lasa-*-linux-amd64 dist/lasa-*-linux-arm64 dist/*.deb dist/*.cdx.json dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.asc dist/release-signing-key.asc --clobber
+gh release upload "$RELEASE_TAG" dist/lasa-*-linux-amd64 dist/lasa-*-linux-arm64 dist/*.deb dist/*.rpm dist/*.pkg.tar.zst dist/*.pkg.tar.zst.sig dist/*.apk dist/*.cdx.json dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.asc dist/release-signing-key.asc --clobber
 gh release edit "$RELEASE_TAG" --draft=false
 # Stable documentation must not wait for a successful APT indexing/deployment.
 bash scripts/publish-docs.sh "$VERSION"

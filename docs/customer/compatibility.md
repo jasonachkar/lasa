@@ -63,3 +63,10 @@ No scan provides complete host security coverage or guaranteed detection. Scores
 The scratch container image intentionally contains no host administration tools. Installing or mounting a native tool alone does not establish host visibility; manager sockets, namespaces, identity mapping and filesystem scope must also be correct. The scanner refuses tools with writable or non-root-controlled executable ancestry. Do not weaken these checks to remove diagnostics.
 
 Fixture and contract tests establish parser/rule behavior. Native provider, kernel and architecture compatibility must also be validated on the deployment targets. The maintainer VM harness automates that work from macOS or an authorized disposable Linux VM; an unexecuted matrix is not a verified support claim.
+
+
+## Package format availability
+
+Native DEB/APT, RPM/DNF/YUM/Zypper, Arch/Pacman and Alpine/APK repositories target Linux AMD64 and ARM64. Linux Homebrew and verified archives remain available deployment methods. Repository configuration is required before a stock package manager recognizes LASA. Formats do not imply default-distribution inclusion or support for every historical kernel/derivative.
+
+Packaging/protocol validation and scanner runtime validation are separate. Representative native package clients run in isolated container tests; full kernel/provider behavior requires the deployment-target matrix above. ARM64 cross-compilation and metadata verification do not substitute for native ARM64 kernel/provider testing. See [installation](installation.md).

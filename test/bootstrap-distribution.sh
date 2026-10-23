@@ -9,6 +9,7 @@ cleanup() {
 trap cleanup EXIT
 mkdir -p "$temp/source/scripts" "$temp/source/.github/workflows" "$temp/mock" "$temp/home" "$temp/state"
 cp "$base/scripts/bootstrap-distribution.sh" "$temp/source/scripts/"
+cp "$base/scripts/prepare-apk-key.sh" "$temp/source/scripts/"
 cp "$base/scripts/next-version.sh" "$temp/source/scripts/"
 cat > "$temp/source/scripts/configure-domain.sh" <<'EOF'
 #!/bin/sh
@@ -96,17 +97,20 @@ run_bootstrap --configure-only
 state="$temp/home/Library/Application Support/lasa-distribution/tester_lasa"
 fingerprint=$(cat "$state/signing-fingerprint")
 deploy=$(cat "$MOCK_STATE/public-key")
+apk_pin=$(cat "$state/apk-public-key.sha256")
 [[ ${#fingerprint} -eq 40 ]]
 test -s "$state/deploy-key"
-for name in APT_SIGNING_KEY DISTRIBUTION_DEPLOY_KEY; do test -f "$MOCK_STATE/secret-$name"; done
-for name in APT_SIGNING_FINGERPRINT DISTRIBUTION_REPOSITORY DISTRIBUTION_BRANCH APT_REPOSITORY_URL DOCS_SITE_URL; do test -f "$MOCK_STATE/variable-$name"; done
+for name in APT_SIGNING_KEY APK_SIGNING_KEY DISTRIBUTION_DEPLOY_KEY; do test -f "$MOCK_STATE/secret-$name"; done
+for name in APK_PUBLIC_KEY_SHA256 APT_SIGNING_FINGERPRINT DISTRIBUTION_REPOSITORY DISTRIBUTION_BRANCH APT_REPOSITORY_URL DOCS_SITE_URL; do test -f "$MOCK_STATE/variable-$name"; done
 run_bootstrap --configure-only
 [[ $(cat "$state/signing-fingerprint") == "$fingerprint" ]]
+[[ $(cat "$state/apk-public-key.sha256") == "$apk_pin" ]]
 [[ $(cat "$MOCK_STATE/public-key") == "$deploy" ]]
 # Different comments on the same key must also preserve the identity.
 printf '%s remote label with several words\n' "$deploy" > "$MOCK_STATE/public-key"
 run_bootstrap --configure-only
 [[ $(cat "$state/signing-fingerprint") == "$fingerprint" ]]
+[[ $(cat "$state/apk-public-key.sha256") == "$apk_pin" ]]
 [[ $(awk '{print $1, $2}' "$MOCK_STATE/public-key") == "$deploy" ]]
 # Real key differences still fail, without overwriting either identity.
 ssh-keygen -q -t ed25519 -N '' -C 'different key' -f "$temp/other-key"
@@ -129,6 +133,10 @@ mv "$state/signing-fingerprint" "$temp/saved-fingerprint"
 if run_bootstrap --configure-only > "$temp/rejection" 2>&1; then exit 1; fi
 grep -q 'automatic key rotation would break' "$temp/rejection"
 mv "$temp/saved-fingerprint" "$state/signing-fingerprint"
+mv "$state/apk-signing-key.pem" "$temp/saved-apk-key"
+if run_bootstrap --configure-only > "$temp/rejection" 2>&1; then exit 1; fi
+grep -q 'No trust key was regenerated' "$temp/rejection"
+mv "$temp/saved-apk-key" "$state/apk-signing-key.pem"
 printf '\nchange\n' >> "$temp/source/Makefile"
 if run_bootstrap --configure-only > "$temp/rejection" 2>&1; then exit 1; fi
 grep -q 'uncommitted changes' "$temp/rejection"

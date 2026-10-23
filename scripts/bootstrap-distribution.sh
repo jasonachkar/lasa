@@ -71,7 +71,7 @@ case "$(uname -s)" in
     ;;
   *) die 'Publishing bootstrap supports macOS and Linux';;
 esac
-for tool in gh gpg jq ssh-keygen curl; do command -v "$tool" >/dev/null || die "Missing publishing tool: $tool"; done
+for tool in gh gpg jq ssh-keygen curl openssl; do command -v "$tool" >/dev/null || die "Missing publishing tool: $tool"; done
 stage='GitHub authentication'
 if ! gh auth status --hostname github.com >/dev/null 2>&1; then
   if [ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]; then
@@ -163,6 +163,7 @@ if [ -n "$existing_key" ]; then
 else
   gh api --method POST "repos/$distribution/keys" -f title='LASA distribution publisher' -f key="$public_key" -F read_only=false >/dev/null
 fi
+bash scripts/prepare-apk-key.sh "$state" "$repo"
 stage='configuring GitHub Actions secrets and variables'
 # Private material goes through stdin, never command arguments or the checkout.
 gpg --batch --armor --export-secret-keys "$fingerprint" | gh secret set APT_SIGNING_KEY --repo "$repo" --env release

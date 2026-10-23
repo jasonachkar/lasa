@@ -14,7 +14,8 @@ git init -q "$temp/site"
 git -C "$temp/site" checkout -qb pages
 git -C "$temp/site" config user.name Test
 git -C "$temp/site" config user.email test@example.invalid
-mkdir -p "$temp/site/apt" "$temp/site/Formula"
+mkdir -p "$temp/site/apt" "$temp/site/Formula" "$temp/site/rpm" "$temp/site/arch" "$temp/site/apk"
+for manager in rpm arch apk; do printf keep-native > "$temp/site/$manager/repository-marker"; done
 printf 'keep-package\n' > "$temp/site/apt/package.deb"
 printf 'keep-formula\n' > "$temp/site/Formula/lasa.rb"
 printf 'lasa.secureobs.com\n' > "$temp/site/CNAME"
@@ -38,6 +39,7 @@ git -C "$temp/second" config user.email test@example.invalid
   mike deploy -F "$root/mkdocs.yml" -b pages -r origin --alias-type redirect -u 0.2.0 latest
   mike set-default -F "$root/mkdocs.yml" -b pages -r origin latest
   git show pages:versions.json > "$temp/versions.json"
+  for manager in rpm arch apk; do test "$(git show "pages:$manager/repository-marker")" = keep-native; done
   git show pages:apt/package.deb | grep -qx keep-package
   git show pages:Formula/lasa.rb | grep -qx keep-formula
   git show pages:CNAME | grep -qx lasa.secureobs.com
@@ -77,6 +79,7 @@ LASA_DOCS_PREVIEW=1 python scripts/prepare-docs.py
   git show pages:preview/installation/index.html | grep -q 'current/installation/'
   git cat-file -e pages:0.1.0/index.html
   git cat-file -e pages:0.2.0/index.html
+  for manager in rpm arch apk; do test "$(git show "pages:$manager/repository-marker")" = keep-native; done
   git show pages:apt/package.deb | grep -qx keep-package
   git show pages:Formula/lasa.rb | grep -qx keep-formula
   git show pages:CNAME | grep -qx lasa.secureobs.com

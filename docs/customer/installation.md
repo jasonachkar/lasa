@@ -8,30 +8,58 @@ Use Linux on AMD64 or ARM64. LASA uses `openat2` to constrain metadata paths; Li
 
 Build with the supported Go 1.27.2 patch release. CGO is disabled for release binaries. A C compiler is needed only for race tests and a pinned Clang/libbpf toolchain only for regenerating the optional eBPF object. The object is already embedded in normal builds.
 
-## APT and Homebrew packages
+## Configure your Linux package manager
 
-Install LASA from the signed APT repository on Debian/Ubuntu or the Linux Homebrew tap. Both methods select the package for your system's architecture.
+LASA publishes its own signed repositories for Linux AMD64 and ARM64. Configure the repository once; subsequent installs and upgrades use your normal package manager. A stock machine does not know LASA's repository until this setup runs.
 
-On Debian/Ubuntu Linux AMD64 or ARM64, the installer configures a repository-specific signing key, verifies its fingerprint and installs the package:
+Download the complete setup script over HTTPS before executing it:
 
-```bash
-curl --proto '=https' --tlsv1.2 -fsSLo install-lasa.sh https://lasa.secureobs.com/install-apt.sh
-bash install-lasa.sh
+```sh
+curl --proto '=https' --tlsv1.2 -fsSLo install-lasa.sh https://lasa.secureobs.com/install.sh
+sh install-lasa.sh
 lasa doctor
 ```
 
-Review the downloaded installer according to your organization's policy. Initial trust comes from the HTTPS distribution site and its published signing fingerprint. After installation, use `sudo apt-get update` and `sudo apt-get install --only-upgrade lasa` for updates. To remove it, use `sudo apt-get remove lasa`; the repository source and keyring remain until you remove `/etc/apt/sources.list.d/lasa.list` and `/usr/share/keyrings/lasa-archive-keyring.gpg`.
+Run these commands from a directory you own. The script uses root or sudo for repository/package changes, detects the available manager, verifies the pinned signing key and installs LASA. `sh install-lasa.sh --detect` prints the selected manager/architecture without configuring a repository. Review the downloaded script according to your organization's policy. Initial trust comes from the HTTPS site and its published key pins; do not bypass signature, checksum or TLS failures.
 
-On Linux with Homebrew:
+| Linux family | Repository / native package | Install after setup | Update |
+| --- | --- | --- | --- |
+| Debian, Ubuntu and compatible derivatives | APT / DEB | `sudo apt install lasa` | `sudo apt update && sudo apt install --only-upgrade lasa` |
+| Fedora, RHEL, Rocky, AlmaLinux, Oracle Linux, CentOS Stream | RPM / DNF | `sudo dnf install lasa` | `sudo dnf upgrade lasa` |
+| Compatible systems using YUM | RPM / YUM | `sudo yum install lasa` | `sudo yum update lasa` |
+| openSUSE / SUSE with compatible RPM support | RPM / Zypper | `sudo zypper install lasa` | `sudo zypper update lasa` |
+| Arch Linux; compatible Arch Linux ARM targets | Pacman | `sudo pacman -S lasa` | `sudo pacman -Syu` |
+| Alpine | APK | `sudo apk add lasa` | `sudo apk update && sudo apk upgrade lasa` |
 
-```bash
+These are LASA-owned repositories, separate from each distribution's default repositories. A package format being available does not establish kernel/provider compatibility for every derivative or historical release. Use a maintained operating system with the kernel requirements above; then check `lasa doctor` and [compatibility](compatibility.md). Gentoo, NixOS and other managers can use reviewed binary/source deployment; no official ebuild, Nixpkgs entry, AUR listing or distribution-maintainer endorsement is implied.
+
+The setup script refuses conflicting existing LASA configuration/key files. It retains the distribution's other repositories. Arch setup performs a full system upgrade before installation, following the rolling-release requirement to avoid partial upgrades. The commands select architecture automatically. Optional systemd units are examples only; no package starts a service, grants scanner privileges or runs a scan.
+
+For APT-only setup, the existing `https://lasa.secureobs.com/install-apt.sh` remains available. APT uses a repository-specific keyring and signed metadata. RPM repositories require both package and metadata signatures. Pacman verifies database and package signatures. APK packages and indexes use RSA/SHA-256 signatures with a separately pinned Alpine public key.
+
+## Linux Homebrew
+
+```sh
 brew install jasonachkar/lasa/lasa
 lasa doctor
 ```
 
-The tap selects the architecture and verifies an exact archive checksum. Use `brew upgrade lasa` and `brew uninstall lasa`. Installing either package does not start a scanner or service. The DEB carries optional systemd examples under `/usr/share/doc/lasa/examples/`; follow the service-account guidance in [operations](operations.md) before installing a unit. Removing a CLI package does not clean up separately configured services or saved reports.
+The formula selects the architecture and verifies an exact archive checksum. Use `brew upgrade lasa` and `brew uninstall lasa`.
 
-macOS can manage publishing but cannot run this Linux scanner. The Homebrew formula explicitly requires Linux. Native Windows/WinGet is not supported; WSL users can use the APT instructions inside a supported Linux distribution. No native macOS or Windows security coverage is implied.
+macOS can manage publishing but cannot run this Linux scanner. The Homebrew formula explicitly requires Linux. Native Windows/WinGet is not supported; WSL users can use their supported Linux distribution's package instructions. No native macOS or Windows security coverage is implied.
+
+## Remove a package or repository
+
+Use `sudo apt remove lasa`, `sudo dnf remove lasa`, `sudo yum remove lasa`, `sudo zypper remove lasa`, `sudo pacman -R lasa`, or `sudo apk del lasa`. Stop any separately configured daemon first. Package removal retains reports, state and repository configuration.
+
+To stop receiving LASA packages, remove only the LASA-owned entries:
+
+- APT: `/etc/apt/sources.list.d/lasa.list` and `/usr/share/keyrings/lasa-archive-keyring.gpg`.
+- DNF/YUM: `/etc/yum.repos.d/lasa.repo`; Zypper: `/etc/zypp/repos.d/lasa.repo`. The public key file is `/etc/pki/rpm-gpg/RPM-GPG-KEY-lasa`; the imported RPM trust entry is shared RPM state, so review its fingerprint before removing it.
+- Pacman: the `Include = /etc/pacman.d/lasa.conf` line and `/etc/pacman.d/lasa.conf`. Remove the specifically identified LASA key through `pacman-key` only after checking no other repository uses it.
+- APK: the LASA URL line in `/etc/apk/repositories` and `/etc/apk/keys/lasa.rsa.pub`.
+
+Do not remove distribution-wide keyrings or unrelated repository files. Local reports and separately installed service units need their own retention/removal policy.
 
 ## Build from source
 
@@ -62,7 +90,7 @@ GitHub Actions releases carry a GitHub build attestation. Verify the downloaded 
 
 Azure releases instead provide `SHA256SUMS.asc` and `release-signing-key.asc`. They use an OpenPGP signature by the APT signing key; this is not a GitHub OIDC build attestation. Import the public key into a dedicated verification keyring, confirm its full primary fingerprint against your organization's trusted LASA signing fingerprint, verify `gpg --verify SHA256SUMS.asc SHA256SUMS`, and check the manifest hashes before installing. A key downloaded alongside a binary is not independently trusted. A valid signature proves control of the signing key, not that the builder was uncompromised.
 
-APT installation verifies the signed repository metadata and package hashes automatically. Homebrew checks the archive hash pinned in its formula. Release provenance verification is an additional check for direct downloads.
+Native package managers verify the configured repository/package trust chain automatically. Homebrew checks the archive hash pinned in its formula. Release provenance verification is an additional check for direct downloads.
 
 ## First private report
 

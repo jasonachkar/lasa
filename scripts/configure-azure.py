@@ -136,7 +136,7 @@ def main():
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9 _-]{0,63}", project):
         raise ValueError("Invalid LASA_AZURE_PROJECT name")
     state = Path.home() / "Library/Application Support/lasa-distribution/jasonachkar_lasa"
-    for path in (state / "deploy-key", state / "signing-fingerprint", state / "gnupg"):
+    for path in (state / "deploy-key", state / "signing-fingerprint", state / "gnupg", state / "apk-signing-key.pem", state / "apk-public-key.sha256"):
         if not path.exists():
             raise ValueError(f"Restore existing publishing state: {path}. Keys will not be regenerated.")
     fingerprint = (state / "signing-fingerprint").read_text().strip()
@@ -154,8 +154,9 @@ def main():
     if not key:
         raise ValueError("Local signing key could not be exported; restore your private state backup")
     secrets = {"GH_TOKEN": os.environ["LASA_GITHUB_TOKEN"], "APT_SIGNING_KEY": key,
-               "DISTRIBUTION_DEPLOY_KEY": (state / "deploy-key").read_text()}
-    public = {"APT_SIGNING_FINGERPRINT": fingerprint, "DISTRIBUTION_REPOSITORY": "jasonachkar/homebrew-lasa",
+               "DISTRIBUTION_DEPLOY_KEY": (state / "deploy-key").read_text(),
+               "APK_SIGNING_KEY": (state / "apk-signing-key.pem").read_text()}
+    public = {"APT_SIGNING_FINGERPRINT": fingerprint, "APK_PUBLIC_KEY_SHA256": (state / "apk-public-key.sha256").read_text().strip(), "DISTRIBUTION_REPOSITORY": "jasonachkar/homebrew-lasa",
               "DISTRIBUTION_BRANCH": command("gh", "api", "repos/jasonachkar/homebrew-lasa", "--jq", ".default_branch"),
               "APT_REPOSITORY_URL": "https://lasa.secureobs.com/apt", "DOCS_SITE_URL": "https://lasa.secureobs.com/"}
     branch = "refs/heads/" + command("git", "branch", "--show-current")

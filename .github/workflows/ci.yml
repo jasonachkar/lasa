@@ -26,14 +26,14 @@ jobs:
         if: matrix.runner == 'ubuntu-24.04'
         run: |
           sudo apt-get update -o APT::Update::Error-Mode=any
-          sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg gpgv shellcheck
+          sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg gpgv shellcheck createrepo-c rpm pacman-package-manager makepkg libarchive-tools gettext-base zstd
           make packages
           bash test/distribution.sh
           bash test/versioning.sh
           bash test/domain.sh
           bash test/bootstrap-distribution.sh
-          python3 -m unittest discover -s test -p 'test_azure.py'
-          shellcheck scripts/validate-on-mac.sh scripts/validate-linux-vm.sh scripts/validate-network-namespace.sh scripts/validate-isolation.sh scripts/validate-disk-pressure.sh scripts/repair-docs-https.sh scripts/bootstrap-azure.sh scripts/publish-docs-local.sh scripts/release-from-azure.sh scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-from-actions.sh scripts/publish-docs.sh scripts/install-apt-body.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh
+          python3 -m unittest discover -s test -p 'test_*.py'
+          shellcheck test/linux-package-managers.sh scripts/install-packaging-tools.sh scripts/package-linux-formats.sh scripts/prepare-apk-key.sh scripts/write-release-manifest.sh scripts/build-signed-packages.sh scripts/publish-linux-repositories.sh scripts/install-linux-body.sh scripts/validate-on-mac.sh scripts/validate-linux-vm.sh scripts/validate-network-namespace.sh scripts/validate-isolation.sh scripts/validate-disk-pressure.sh scripts/repair-docs-https.sh scripts/bootstrap-azure.sh scripts/publish-docs-local.sh scripts/release-from-azure.sh scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-from-actions.sh scripts/publish-docs.sh scripts/install-apt-body.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh
       - name: Real container view smoke test
         run: |
           version=$(make -s print-version)

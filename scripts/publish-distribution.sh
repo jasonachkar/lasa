@@ -120,13 +120,15 @@ EOF
   cat "$(dirname "$0")/install-apt-body.sh"
 } > "$site/install-apt.sh"
 chmod 0755 "$site/install-apt.sh"
+bash "$(dirname "$0")/publish-linux-repositories.sh" "$site" "$assets" "$version" "${apt_url%/apt}"
 cat > "$site/README.md" <<EOF
 # LASA packages
 
 Generated Linux AMD64/ARM64 packages from [$repository](https://github.com/$repository).
 APT repository: $apt_url (suite stable, component main).
 Signing key fingerprint: $APT_SIGNING_FINGERPRINT.
-Run install-apt.sh on Debian/Ubuntu, or use this repository as a Linux Homebrew tap.
+Run install.sh to configure APT, DNF/YUM, Zypper, Pacman or APK and install LASA.
+Signed RPM, Arch and Alpine repositories share the site with APT and the Linux Homebrew tap.
 LASA requires Linux openat2 support. It cannot scan macOS or native Windows.
 Installing the package does not start a service or perform a scan.
 EOF

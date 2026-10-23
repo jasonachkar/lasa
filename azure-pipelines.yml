@@ -41,12 +41,12 @@ stages:
           - bash: |
               set -euo pipefail
               sudo apt-get update -o APT::Update::Error-Mode=any
-              sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg gpgv jq shellcheck
+              sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg gpgv jq shellcheck createrepo-c rpm pacman-package-manager makepkg libarchive-tools gettext-base zstd
               make tools
               export PATH="$(go env GOPATH)/bin:$PATH"
               export VERSION=0.0.0
               make check fuzz reproducible packages
-              python -m unittest discover -s test -p 'test_azure.py'
+              python -m unittest discover -s test -p 'test_*.py'
               bash test/bootstrap-distribution.sh
               bash test/versioning.sh
               bash test/domain.sh
@@ -65,6 +65,8 @@ stages:
               GITHUB_REPOSITORY: jasonachkar/lasa
               RUNNER_TEMP: $(Agent.TempDirectory)
               APT_SIGNING_KEY: $(APT_SIGNING_KEY)
+              APK_SIGNING_KEY: $(APK_SIGNING_KEY)
+              APK_PUBLIC_KEY_SHA256: $(APK_PUBLIC_KEY_SHA256)
               APT_SIGNING_FINGERPRINT: $(APT_SIGNING_FINGERPRINT)
               DISTRIBUTION_REPOSITORY: $(DISTRIBUTION_REPOSITORY)
               DISTRIBUTION_BRANCH: $(DISTRIBUTION_BRANCH)

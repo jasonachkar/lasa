@@ -9,6 +9,8 @@ trap 'printf "Package publication failed at line %s. See the preceding command e
 : "${DISTRIBUTION_BRANCH:?Missing distribution branch}"
 : "${DISTRIBUTION_DEPLOY_KEY:?Missing distribution deploy key secret}"
 : "${APT_SIGNING_KEY:?Missing APT signing key secret}"
+: "${APK_SIGNING_KEY:?Run the updated owner bootstrap for the Alpine signing key}"
+: "${APK_PUBLIC_KEY_SHA256:?Missing Alpine public-key pin}"
 : "${APT_SIGNING_FINGERPRINT:?Missing signing fingerprint variable}"
 : "${APT_REPOSITORY_URL:?Missing APT repository URL}"
 [[ $DISTRIBUTION_REPOSITORY =~ ^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$ ]] || exit 1

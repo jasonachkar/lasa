@@ -12,7 +12,7 @@ trap cleanup EXIT
 for tool in apt-ftparchive dpkg-scanpackages gpgv apt-get; do command -v "$tool" >/dev/null || { echo "Missing test dependency: $tool" >&2; exit 1; }; done
 bash scripts/package-release.sh "$version"
 mkdir "$temp/first"
-cp dist/*.deb dist/lasa-*-linux-*.tar.gz "$temp/first/"
+cp dist/*.deb dist/*.rpm dist/*.apk dist/*.pkg.tar.zst dist/lasa-*-linux-*.tar.gz "$temp/first/"
 bash scripts/package-release.sh "$version"
 for file in "$temp/first/"*; do cmp "$file" "dist/${file##*/}"; done
 for arch in amd64 arm64; do
@@ -32,15 +32,26 @@ for arch in amd64 arm64; do
 done
 case "$(uname -m)" in x86_64) arch=amd64;; aarch64|arm64) arch=arm64;; *) exit 1;; esac
 [[ $("$temp/extracted-$arch/usr/bin/lasa" version) == "$version" ]]
-gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'LASA distribution test <test@example.invalid>' ed25519 sign 0
+gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'LASA distribution test <test@example.invalid>' rsa2048 sign 0
 APT_SIGNING_FINGERPRINT=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1=="fpr"{print $10;exit}')
 export APT_SIGNING_FINGERPRINT
-mkdir "$temp/site"
+# Native package signatures use isolated fixture keys, never the owner's keys.
+gpg --batch --armor --export-secret-keys "$APT_SIGNING_FINGERPRINT" > "$temp/openpgp-private.asc"
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$temp/alpine.pem" 2> "$temp/keygen.log"
+openssl pkey -in "$temp/alpine.pem" -pubout -out "$temp/lasa.rsa.pub"
+export APT_SIGNING_KEY APK_SIGNING_KEY APK_PUBLIC_KEY_SHA256
+APT_SIGNING_KEY=$(cat "$temp/openpgp-private.asc")
+APK_SIGNING_KEY=$(cat "$temp/alpine.pem")
+APK_PUBLIC_KEY_SHA256=$(sha256sum "$temp/lasa.rsa.pub" | awk '{print $1}')
+bash scripts/build-signed-packages.sh "$version"
+mkdir -m 0755 "$temp/site"
 bash scripts/publish-distribution.sh "$temp/site" dist "$version" example/lasa https://example.github.io/homebrew-lasa/apt
 gpg --batch --export "$APT_SIGNING_FINGERPRINT" > "$temp/keyring.gpg"
 gpgv --keyring "$temp/keyring.gpg" "$temp/site/apt/dists/stable/InRelease"
 gpgv --keyring "$temp/keyring.gpg" "$temp/site/apt/dists/stable/Release.gpg" "$temp/site/apt/dists/stable/Release"
 bash -n "$temp/site/install-apt.sh"
+sh -n "$temp/site/install.sh"
+sh "$temp/site/install.sh" --detect
 for arch in amd64 arm64; do
   digest=$(sha256sum "dist/lasa-$version-linux-$arch.tar.gz" | awk '{print $1}')
   grep -q "$digest" "$temp/site/Formula/lasa.rb"
@@ -58,6 +69,36 @@ for arch in amd64 arm64; do cmp "dist/lasa_${version}_${arch}.deb" "$temp/downlo
 # Re-running preserves immutable packages and remains a valid signed repository.
 bash scripts/publish-distribution.sh "$temp/site" dist "$version" example/lasa https://example.github.io/homebrew-lasa/apt
 gpgv --keyring "$temp/keyring.gpg" "$temp/site/apt/dists/stable/InRelease"
+# A checksum-only RPM and an unsigned APK must never reach publication.
+mkdir -p "$temp/unsigned-rpm-site" "$temp/unsigned-apk-site" "$temp/unsigned-apk-assets"
+cp "dist/lasa-$version-1-x86_64.pkg.tar.zst.sig" "dist/lasa-$version-1-aarch64.pkg.tar.zst.sig" "$temp/first/"
+if bash scripts/publish-linux-repositories.sh "$temp/unsigned-rpm-site" "$temp/first" "$version" https://example.github.io/homebrew-lasa > "$temp/rejection" 2>&1; then exit 1; fi
+grep -q 'no verified native signature' "$temp/rejection"
+cp dist/*.rpm dist/*.pkg.tar.zst dist/*.pkg.tar.zst.sig "$temp/unsigned-apk-assets/"
+cp "$temp/first/lasa-$version-r1-x86_64.apk" "$temp/first/lasa-$version-r1-aarch64.apk" "$temp/unsigned-apk-assets/"
+if bash scripts/publish-linux-repositories.sh "$temp/unsigned-apk-site" "$temp/unsigned-apk-assets" "$version" https://example.github.io/homebrew-lasa > "$temp/rejection" 2>&1; then exit 1; fi
+grep -Ei 'untrusted|signature' "$temp/rejection"
+if [ -n "${LASA_TEST_PUBLIC_REPOSITORY:-}" ]; then
+  mkdir -p "$LASA_TEST_PUBLIC_REPOSITORY"
+  cp -R "$temp/site/." "$LASA_TEST_PUBLIC_REPOSITORY/"
+fi
+IFS=. read -r major minor patch <<< "$version"
+next_version="$major.$minor.$((patch + 1))"
+# Publish a real newer scanner build into a copy, preserving the original test repository.
+cp -R "$temp/site" "$temp/next-site"
+bash scripts/build-signed-packages.sh "$next_version"
+bash scripts/publish-distribution.sh "$temp/next-site" dist "$next_version" example/lasa https://example.github.io/homebrew-lasa/apt
+if [ -n "${LASA_TEST_PUBLIC_REPOSITORY:-}" ]; then
+  mkdir -p "$LASA_TEST_PUBLIC_REPOSITORY-next"
+  cp -R "$temp/next-site/." "$LASA_TEST_PUBLIC_REPOSITORY-next/"
+fi
+# APT must also select/download the newer authenticated version for both architectures.
+printf 'deb [arch=amd64,arm64 signed-by=%s] file:%s stable main\n' "$temp/keyring.gpg" "$temp/next-site/apt" > "$temp/sources.list"
+apt-get "${apt_options[@]}" update
+(cd "$temp/downloads" && apt-get "${apt_options[@]}" download lasa:amd64 lasa:arm64)
+for arch in amd64 arm64; do cmp "dist/lasa_${next_version}_${arch}.deb" "$temp/downloads/lasa_${next_version}_${arch}.deb"; done
+printf 'deb [arch=amd64,arm64 signed-by=%s] file:%s stable main\n' "$temp/keyring.gpg" "$temp/site/apt" > "$temp/sources.list"
+bash test/linux-package-managers.sh "$temp/site" "$version" "$temp/next-site" "$next_version"
 # Tampered signatures must be rejected by real APT, not just by a mock.
 sed -i 's/Suite: stable/Suite: tampered/' "$temp/site/apt/dists/stable/InRelease"
 find "$temp/lists" -type f -delete

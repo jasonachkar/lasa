@@ -22,9 +22,16 @@ curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location "$APT_UR
 fingerprints=$(gpg --batch --homedir "$temp" --show-keys --with-colons "$temp/key.asc" | awk -F: '$1=="pub"{primary=1;next} primary && $1=="fpr"{print $10;primary=0}')
 [[ $fingerprints == "$APT_FINGERPRINT" ]] || { echo 'Repository signing key does not match the installer fingerprint; nothing was trusted.' >&2; exit 1; }
 gpg --batch --yes --homedir "$temp" --dearmor --output "$temp/lasa.gpg" "$temp/key.asc"
+printf 'deb [arch=%s signed-by=/usr/share/keyrings/lasa-archive-keyring.gpg] %s stable main\n' "$arch" "$APT_URL" > "$temp/lasa.list"
+for target in /usr/share/keyrings/lasa-archive-keyring.gpg /etc/apt/sources.list.d/lasa.list; do
+  case "$target" in *.gpg) expected="$temp/lasa.gpg";; *) expected="$temp/lasa.list";; esac
+  if [ -e "$target" ] && ! cmp -s "$expected" "$target"; then
+    echo "Conflicting LASA key/source file: $target. It was not overwritten; review the existing repository ownership." >&2
+    exit 1
+  fi
+done
 "${sudo_cmd[@]}" install -d -m 0755 /usr/share/keyrings
 "${sudo_cmd[@]}" install -m 0644 "$temp/lasa.gpg" /usr/share/keyrings/lasa-archive-keyring.gpg
-printf 'deb [arch=%s signed-by=/usr/share/keyrings/lasa-archive-keyring.gpg] %s stable main\n' "$arch" "$APT_URL" > "$temp/lasa.list"
 "${sudo_cmd[@]}" install -m 0644 "$temp/lasa.list" /etc/apt/sources.list.d/lasa.list
 "${sudo_cmd[@]}" apt-get update -o APT::Update::Error-Mode=any
 "${sudo_cmd[@]}" apt-get install -y lasa

@@ -29,3 +29,5 @@ Every exported contract has its own version. Keep customer-facing descriptions a
 
 - [Inspection architecture, permission model and provider trust boundaries](inspection-design.md)
 - [Automated native VM validation from macOS](validation.md)
+
+- [Native Linux package formats, repositories and signing](linux-distribution.md)

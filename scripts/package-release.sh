@@ -48,3 +48,5 @@ EOF
   chmod -R u=rwX,go=rX "$archive"
   tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$archive" -cf - . | gzip -n > "dist/lasa-$version-linux-$arch.tar.gz"
 done
+
+bash scripts/package-linux-formats.sh "$version" "$stage"

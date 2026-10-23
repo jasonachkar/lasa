@@ -10,6 +10,15 @@ LASA analyzes local evidence without exploit tests or enforcement changes. The d
 
 Package and documentation publishing can be bootstrapped from macOS with `bash scripts/bootstrap-distribution.sh`. See [automated publishing](docs/maintainer/publishing.md) for GitHub/GoDaddy authorization, signing, automatic versions and recovery. The MkDocs customer site targets **https://lasa.secureobs.com**; it and package installation become available after bootstrap and the release workflow complete. Scanning still requires a Linux target.
 
+After the signed repositories have been published, configure a Linux target once:
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSLo install-lasa.sh https://lasa.secureobs.com/install.sh
+sh install-lasa.sh
+```
+
+Then use `sudo apt install lasa`, `sudo dnf install lasa`, `sudo zypper install lasa`, `sudo pacman -S lasa` or `sudo apk add lasa` as appropriate. [Installation](docs/customer/installation.md) describes trust, upgrades, supported systems and removal. These are LASA-owned repositories; default distribution repositories require separate maintainer acceptance.
+
 Use Linux AMD64 or ARM64, kernel support for `openat2` (normally Linux 5.6+), and Go **1.27.2** to build:
 
 ```sh
@@ -59,14 +68,14 @@ These documents explain the product's behavior and operational contract without 
 - [Build, tests, CI and releases](docs/maintainer/development.md)
 - [Verification and production readiness](docs/maintainer/verification.md)
 - [Licensing and distribution](docs/maintainer/distribution.md)
-- [Automated APT and Homebrew publishing from a Mac](docs/maintainer/publishing.md)
+- [Automated Linux repositories and Homebrew publishing from a Mac](docs/maintainer/publishing.md)
 - [Azure pipeline, one-command Mac setup and direct website recovery](docs/maintainer/azure.md)
 
 ## Commands
 
 ```text
 lasa scan                 Local snapshot; explicitly selected configuration inspections
-lasa advisories           Explicit advisory update or authenticated local import
+lasa advisories           Explicit advisory update or validated local import
 lasa doctor               Platform, visibility and optional sensor checks
 lasa explain ID --report  Evidence and explanation for one fingerprint
 lasa diff OLD NEW         Coverage-aware report comparison
