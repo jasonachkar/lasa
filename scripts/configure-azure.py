@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Owner-local Azure bootstrap. Tokens stay in memory; API error bodies are redacted."""
+from base64 import b64encode
+import getpass
 import json
 import os
 from pathlib import Path
@@ -8,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import warnings
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -19,7 +22,7 @@ def command(*args, **kwargs):
 
 
 class AzureHTTPError(RuntimeError):
-    def __init__(self, method, path, status, tenant=None, service_code=None):
+    def __init__(self, method, path, status, tenant=None, service_code=None, *, pat=False):
         self.status = status
         self.tenant = tenant
         self.service_code = service_code
@@ -28,10 +31,12 @@ class AzureHTTPError(RuntimeError):
             detail = " Azure DevOps requires this account to complete its first browser sign-in to the organization."
         elif service_code in ("TF400813", "VS30063"):
             detail = " Azure DevOps did not authorize this account for the requested resource."
+        recovery = ("Check the Azure DevOps PAT's expiry, organization and scopes, and its owner's organization/project permissions. "
+                    "Required bootstrap scopes are listed in docs/maintainer/azure.md#use-an-azure-devops-pat. " if pat else
+                    "Check organization membership, project administration and token/tenant access. ")
         super().__init__(f"Azure {method} {path.split('?')[0]} returned HTTP {status}. "
                          + (f"Service code: {service_code}." if service_code else "") + detail + " "
-                         "Check organization membership, project administration and token/tenant access. "
-                         "The response body is suppressed to protect secrets.")
+                         + recovery + "The response body is suppressed to protect secrets.")
 
 
 class AzureRedirectError(AzureHTTPError):
@@ -89,17 +94,20 @@ def tenant_challenge(headers):
 
 
 class Azure:
-    def __init__(self, organization, token):
+    def __init__(self, organization, token, *, pat=False):
         if not re.fullmatch(r"https://dev\.azure\.com/[A-Za-z0-9][A-Za-z0-9-]*/?", organization):
             raise ValueError("Organization must be an HTTPS dev.azure.com organization URL")
         self.base = organization.rstrip("/")
         self.token = token
+        self.pat = pat
 
     def request(self, method, path, data=None, *, missing=False, version="7.1"):
         url = self.base + "/" + path.lstrip("/")
         url += ("&" if "?" in url else "?") + "api-version=" + version
+        authorization = ("Basic " + b64encode((":" + self.token).encode("ascii")).decode("ascii")
+                         if self.pat else "Bearer " + self.token)
         request = Request(url, data=None if data is None else json.dumps(data).encode(), method=method,
-                          headers={"Authorization": "Bearer " + self.token, "Content-Type": "application/json",
+                          headers={"Authorization": authorization, "Content-Type": "application/json",
                                    "Accept": "application/json", "X-TFS-FedAuthRedirect": "Suppress"})
         try:
             with build_opener(NoRedirect).open(request, timeout=60) as response:
@@ -114,7 +122,7 @@ class Azure:
         except HTTPError as error:
             if missing and error.code == 404:
                 return None
-            raise AzureHTTPError(method, path, error.code, tenant_challenge(error.headers), azure_service_code(error)) from None
+            raise AzureHTTPError(method, path, error.code, tenant_challenge(error.headers), azure_service_code(error), pat=self.pat) from None
         except (URLError, TimeoutError) as error:
             raise RuntimeError(f"Azure {method} request failed ({type(error).__name__}); check connectivity and retry.") from None
 
@@ -138,28 +146,63 @@ def azure_token(tenant):
     return token
 
 
-def authenticated_azure(organization, project_name, tenant=None, reauthenticate=False):
+def read_devops_pat(organization, existing=None):
+    Azure(organization, "")  # Validate before opening a browser or prompting for a secret.
+    if existing:
+        token = existing
+    else:
+        if not sys.stdin.isatty():
+            raise RuntimeError("PAT mode requires an interactive terminal with hidden input, or a pre-existing "
+                               "AZURE_DEVOPS_EXT_PAT from your local secret manager. Never put a PAT in command arguments or chat.")
+        url = organization.rstrip("/") + "/_usersSettings/tokens"
+        print("Create a short-lived PAT using the browser account that administers this organization: " + url, flush=True)
+        print("Choose this organization; scopes: Project and Team (read/write/manage), Build (read/execute), "
+              "Service Connections (read/query/manage), Agent Pools (read), Pipeline Resources (use/manage). "
+              "The PAT is used only for this setup; revoke it afterwards. Paste it only into the hidden terminal prompt.", flush=True)
+        try:
+            subprocess.run(["open", url], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass  # The public URL above remains usable when no macOS browser opener is available.
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", getpass.GetPassWarning)
+                token = getpass.getpass("Azure DevOps bootstrap PAT (hidden): ")
+        except (EOFError, KeyboardInterrupt, OSError, getpass.GetPassWarning):
+            raise RuntimeError("PAT input cancelled or hidden terminal input unavailable; no credential was saved. "
+                               "Run from an interactive terminal or use your local secret manager.") from None
+    if not re.fullmatch(r"[!-~]{1,4096}", token):
+        raise ValueError("Invalid Azure DevOps PAT input: expected a nonempty ASCII token without spaces or control characters; value withheld.")
+    return token
+
+
+def authenticated_azure(organization, project_name, tenant=None, reauthenticate=False, *, personal_access_token=None):
     # Read-only preflight precedes key preparation/export and all remote writes.
     Azure(organization, "")  # Validate credential destination before invoking sign-in.
-    if tenant and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}", tenant):
+    pat_mode = personal_access_token is not None
+    if pat_mode and reauthenticate:
+        raise ValueError("Choose Azure CLI reauthentication or Azure DevOps PAT mode, not both")
+    if not pat_mode and tenant and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}", tenant):
         raise ValueError("LASA_AZURE_TENANT must be a tenant ID or tenant domain, not a URL")
     if reauthenticate:
         azure_login(tenant)
-    try:
-        token = azure_token(tenant)
-    except subprocess.CalledProcessError:
-        if reauthenticate:
-            raise RuntimeError("Azure CLI could not obtain an Azure DevOps token after sign-in. "
-                               "Check the selected account, tenant and organization sign-in policy.") from None
-        azure_login(tenant)
+    if pat_mode:
+        token = personal_access_token
+    else:
         try:
             token = azure_token(tenant)
         except subprocess.CalledProcessError:
-            raise RuntimeError("Azure CLI could not obtain an Azure DevOps token. "
-                               "Use LASA_AZURE_TENANT for the organization tenant and rerun --reauth.") from None
+            if reauthenticate:
+                raise RuntimeError("Azure CLI could not obtain an Azure DevOps token after sign-in. "
+                                   "Check the selected account, tenant and organization sign-in policy.") from None
+            azure_login(tenant)
+            try:
+                token = azure_token(tenant)
+            except subprocess.CalledProcessError:
+                raise RuntimeError("Azure CLI could not obtain an Azure DevOps token. "
+                                   "Use LASA_AZURE_TENANT for the organization tenant and rerun --reauth.") from None
     attempted = set()
     while True:
-        api = Azure(organization, token)
+        api = Azure(organization, token, pat=pat_mode)
         project_error = None
         try:
             project = api.request("GET", "_apis/projects/" + quote(project_name, safe=""), missing=True)
@@ -188,11 +231,21 @@ def authenticated_azure(organization, project_name, tenant=None, reauthenticate=
         if organization_access:
             if project_error is None:
                 return api  # Authenticated organization; configure can create the missing private project.
+            recovery = ("Check the PAT's project scopes and the browser owner's project permissions; "
+                        "a PAT cannot grant access its owner lacks. " if pat_mode else
+                        "Rerun bash scripts/bootstrap-azure.sh --reauth if the cached account is wrong. ")
             raise RuntimeError(f"{project_error} The organization authenticated this login, but access to project "
                                f"'{project_name}' was denied. Sign in with its owner account or ask an organization/project "
                                "administrator to check project membership and permissions. Setup needs project, service-connection "
                                "and pipeline administration; it cannot grant itself access. "
-                               "Rerun bash scripts/bootstrap-azure.sh --reauth if the cached account is wrong. "
+                               + recovery + "No publishing keys or pipeline configuration were changed by this preflight.") from None
+        if pat_mode:
+            reason = str(organization_error or project_error) if organization_error or project_error else "No authenticated organization identity was returned."
+            raise RuntimeError(f"Azure DevOps PAT access could not be verified: {api.base}. Observed response: {reason} "
+                               "Check that this short-lived PAT is unexpired, scoped to this organization and created by the browser "
+                               "account that administers it, with the documented bootstrap scopes. Organization policies may restrict PATs. "
+                               "A PAT cannot add membership or permissions; its owner must already have access. "
+                               "Azure CLI tenant selection is not used in PAT mode. "
                                "No publishing keys or pipeline configuration were changed by this preflight.") from None
         hint = (organization_error.tenant if organization_error else None) or (project_error.tenant if project_error else None)
         if hint and not tenant and not attempted:
@@ -221,6 +274,8 @@ def authenticated_azure(organization, project_name, tenant=None, reauthenticate=
                            "bash scripts/bootstrap-azure.sh --reauth. If access is still denied, its administrator must check "
                            "Organization settings > Users and the organization's tenant/sign-in policies. "
                            "Set LASA_AZURE_TENANT if a specific tenant is required. "
+                           "If repeated CLI sign-in still fails but the browser owner has access, use --devops-pat "
+                           "with that owner's short-lived Azure DevOps PAT (entered privately on this Mac). "
                            "No publishing keys or pipeline configuration were changed by this preflight.") from None
 
 
@@ -306,6 +361,12 @@ def configure(api, project_name, secrets, public, branch, configure_only):
 
 
 def main():
+    # Remove injected PAT before any child process (including the browser and gh) starts.
+    existing_pat = os.environ.pop("AZURE_DEVOPS_EXT_PAT", None)
+    pat_mode = os.environ.get("LASA_AZURE_DEVOPS_PAT") == "1"
+    reauthenticate = os.environ.get("LASA_AZURE_REAUTH") == "1"
+    if pat_mode and reauthenticate:
+        raise ValueError("Choose --reauth or --devops-pat, not both")
     organization = os.environ.get("LASA_AZURE_ORGANIZATION", "https://dev.azure.com/jasonachkardiab")
     project = os.environ.get("LASA_AZURE_PROJECT", "LASA")
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9 _-]{0,63}", project):
@@ -317,8 +378,10 @@ def main():
     fingerprint = (state / "signing-fingerprint").read_text().strip()
     if not re.fullmatch(r"[A-F0-9]{40}", fingerprint):
         raise ValueError("Invalid local signing fingerprint")
-    api = authenticated_azure(organization, project, os.environ.get("LASA_AZURE_TENANT"),
-                              os.environ.get("LASA_AZURE_REAUTH") == "1")
+    if pat_mode:
+        api = authenticated_azure(organization, project, personal_access_token=read_devops_pat(organization, existing_pat))
+    else:
+        api = authenticated_azure(organization, project, os.environ.get("LASA_AZURE_TENANT"), reauthenticate)
     subprocess.run(["bash", str(Path(__file__).resolve().parent / "prepare-apk-key.sh"), str(state), "jasonachkar/lasa"], check=True)
     # Short alias avoids macOS GnuPG Unix socket length limits.
     with tempfile.TemporaryDirectory(prefix="lasa-gpg-", dir="/tmp") as temp:

@@ -12,7 +12,7 @@ bash scripts/bootstrap-azure.sh
 
 The defaults are organization `https://dev.azure.com/jasonachkardiab`, private project `LASA`, pipeline `LASA`, source `jasonachkar/lasa`, and public distribution `jasonachkar/homebrew-lasa`. The command installs missing Azure CLI, GitHub CLI, GnuPG and Python tools through the existing Homebrew installation. It opens account sign-in when required, creates/reuses the project and GitHub service connection, installs encrypted pipeline secrets, authorizes only this pipeline to use its connection, switches the publishing provider, and queues the current branch. It does not merge a feature branch. Pushes to `main` subsequently trigger verification and releases automatically.
 
-Use `--configure-only` to avoid queuing and `--reauth` to open a fresh Azure sign-in without logging out other cached accounts. The flags can be combined. `LASA_AZURE_ORGANIZATION` and `LASA_AZURE_PROJECT` override the organization/project; `LASA_AZURE_TENANT` selects its tenant ID/domain when required. Azure project/organization access is checked before preparing, registering or exporting publishing keys. The source, distribution and domain are intentionally fixed to this deployment. The bootstrap checks the checkout matches its remote branch before configuring anything. Existing keys are reused from `~/Library/Application Support/lasa-distribution/jasonachkar_lasa`; a missing state backup stops setup rather than rotating keys and breaking installations. It does not change DNS, nameservers, or the unrelated `cybersecurity-writeups` repository or `docs.jasonachkardiab.com` domain.
+Use `--configure-only` to avoid queuing and `--reauth` to open a fresh Azure sign-in without logging out other cached accounts. Those flags can be combined. Alternatively, use [`--devops-pat`](#use-an-azure-devops-pat) when the browser owner can access DevOps but CLI sign-in repeatedly fails; this mode skips Azure CLI and tenant selection. It can be combined with `--configure-only`, but not `--reauth`. `LASA_AZURE_ORGANIZATION` and `LASA_AZURE_PROJECT` override the organization/project; `LASA_AZURE_TENANT` selects its tenant ID/domain in CLI mode only. Azure project/organization access is checked before preparing, registering or exporting publishing keys. The source, distribution and domain are intentionally fixed to this deployment. The bootstrap checks the checkout matches its remote branch before configuring anything. Existing keys are reused from `~/Library/Application Support/lasa-distribution/jasonachkar_lasa`; a missing state backup stops setup rather than rotating keys and breaking installations. It does not change DNS, nameservers, or the unrelated `cybersecurity-writeups` repository or `docs.jasonachkardiab.com` domain.
 
 ## Publish the website immediately without a build runner
 
@@ -34,15 +34,44 @@ Successful verification builds Linux AMD64 and ARM64 binaries, DEBs, archives, l
 
 ## Credentials and permissions
 
-The bootstrap uses Azure CLI's owner login with the Azure DevOps audience, over TLS, to administer the selected organization/project. It uses the owner's existing local GitHub CLI session for setup. By default it copies that session's GitHub token into the encrypted Azure GitHub connection and encrypted `GH_TOKEN` pipeline variable. That token retains its existing account scopes; it is not automatically restricted to LASA. For least privilege, set `LASA_GITHUB_TOKEN` locally to a dedicated token authorized for source checkout, tags, releases and build statuses for this repository, including organization SSO where required. Never put it in a command committed to Git or paste it into chat. The owner CLI session still sets the repository publishing-provider variable. Expired/revoked tokens require rerunning bootstrap with a usable session/token.
+The bootstrap uses Azure CLI's owner login with the Azure DevOps audience, or an explicitly selected owner PAT, over TLS, to administer the selected organization/project. It uses the owner's existing local GitHub CLI session for setup. By default it copies that session's GitHub token into the encrypted Azure GitHub connection and encrypted `GH_TOKEN` pipeline variable. That token retains its existing account scopes; it is not automatically restricted to LASA. For least privilege, set `LASA_GITHUB_TOKEN` locally to a dedicated token authorized for source checkout, tags, releases and build statuses for this repository, including organization SSO where required. Never put it in a command committed to Git or paste it into chat. The owner CLI session still sets the repository publishing-provider variable. Expired/revoked tokens require rerunning bootstrap with a usable session/token.
 
 Encrypted Azure pipeline variables are `GH_TOKEN`, `APT_SIGNING_KEY`, `APK_SIGNING_KEY` and `DISTRIBUTION_DEPLOY_KEY`. Signing/deploy material is copied from local private state. Public variables contain the fingerprint, destination branch and APT/docs URLs. No GoDaddy credentials are copied into Azure. Anyone able to run arbitrary code with these secrets could sign packages and publish the distribution; limit project/pipeline administration accordingly. The script sends secret JSON directly from memory over HTTPS, suppresses API error bodies, and does not write credential payload files. Azure log masking is supplementary protection, not permission to print secrets.
 
 Azure releases have an OpenPGP-signed `SHA256SUMS.asc`, not GitHub Actions OIDC attestations. The public key included in the release is a convenience; consumers must authenticate its fingerprint independently. GitHub-origin releases continue to require GitHub attestation verification. The retry path detects an existing GitHub-origin release without a detached signature and requires GitHub attestation verification instead. A present detached signature must verify against the configured fingerprint; verification failures never fall back to another policy.
 
+## Use an Azure DevOps PAT
+
+Use this path for a persistent CLI `TF400813`/HTTP 401 or 403 when the organization opens successfully under its actual owner in the browser. A personal Microsoft account and a work account can share the same displayed email while representing different identities. Repeating sign-in with an unauthorized CLI identity does not change its DevOps permissions.
+
+From anywhere inside the clean, pushed checkout on the Mac:
+
+```bash
+git pull --ff-only
+bash "$(git rev-parse --show-toplevel)/scripts/bootstrap-azure.sh" --devops-pat
+```
+
+The script opens the organization's [Personal access tokens page](https://dev.azure.com/jasonachkardiab/_usersSettings/tokens). Sign in with the account that administers this organization. Create an organization-specific bootstrap token, choose a short expiration, and select **Custom defined** scopes (expand **Show all scopes** where necessary):
+
+| Scope | Access needed | Bootstrap use |
+| --- | --- | --- |
+| Project and Team | Read, write & manage (`vso.project_manage`) | Read the private project or create it if missing |
+| Build | Read & execute (`vso.build_execute`) | Read/create/update the YAML pipeline and queue a run |
+| Service Connections | Read, query & manage (`vso.serviceendpoint_manage`) | Create/reuse the LASA GitHub connection |
+| Agent Pools | Read (`vso.agentpools`) | Locate the existing Microsoft-hosted project queue |
+| Pipeline Resources | Use & manage (`vso.pipelineresources_manage`) | Authorize this pipeline's connection and queue |
+
+Paste the newly issued token **only into the hidden local terminal prompt**. No token is needed in chat, a command argument, a committed file or a pipeline variable. Credential issuance requires the authorized browser account; the script cannot mint a PAT using the identity Azure has already rejected. Organization policy may restrict PAT creation, scope availability or lifetime. Such policy and missing membership/roles must be resolved by the organization administrator; a PAT inherits its owner's permissions and cannot grant access.
+
+This mode does not install or invoke Azure CLI and ignores `LASA_AZURE_TENANT`. It uses Basic authentication over verified HTTPS to the validated organization only. Authenticated redirects are blocked. The same read-only project/organization preflight runs before key preparation/export or remote configuration writes. Read access verifies identity/access; later administration operations can still fail if their required scope or owner role is missing, and the diagnostic names the rejected API operation and status.
+
+The PAT stays in bootstrap process memory and is not saved to local state, GitHub secrets, the Azure GitHub service connection or Azure pipeline variables. Those retain the separate GitHub/signing/deploy credentials described above. If supplied by an existing local secret-manager integration, `AZURE_DEVOPS_EXT_PAT` is accepted only in explicit PAT mode; the wrapper withholds it from Git, Homebrew and GitHub CLI and Python removes it from its environment before starting any child process. Interactive input requires a terminal and refuses an echoing fallback. Do not type an environment assignment containing the PAT into shell history.
+
+After successful setup, revoke this bootstrap PAT on the same browser page; the pipeline does not depend on it. Keep the separate GitHub credential valid for source/release access. Interrupted or failed setup can be retried with a valid bootstrap PAT without rotating the saved signing/deploy keys. PAT-denial diagnostics do not loop through CLI sign-in or tenant retries.
+
 ## Costs, consent and failure recovery
 
-An Azure DevOps organization does not guarantee free hosted parallel jobs. Microsoft may require a hosted-agent grant or billing; account verification and provider approval cannot be supplied by a Bash script. Project creation and pipeline/service-connection administration require appropriate organization permissions. GitHub OAuth/SSO consent, macOS administrator prompts and Azure browser sign-in remain owner actions. These are the only intended interactive boundaries; the script automates repository/project configuration and secret copying. No cloud-side deployment is claimed merely because the files or local tests exist.
+An Azure DevOps organization does not guarantee free hosted parallel jobs. Microsoft may require a hosted-agent grant or billing; account verification and provider approval cannot be supplied by a Bash script. Project creation and pipeline/service-connection administration require appropriate organization permissions. GitHub OAuth/SSO consent, macOS administrator prompts, Azure browser sign-in and optional PAT issuance remain owner actions; the script automates repository/project configuration and secret copying. No cloud-side deployment is claimed merely because the files or local tests exist.
 
 If Azure reports no hosted parallelism or leaves a run queued, use the local docs command immediately, then enable hosted capacity in the organization. The bootstrap does not buy capacity or bypass policy. If sign-in chooses the wrong tenant, sign in to the organization tenant with Azure CLI and rerun. If service connection or secret permissions fail, the error identifies the operation and HTTP status without dumping credentials. Existing unrelated pipelines/connections are protected against name collisions.
 
@@ -83,6 +112,7 @@ If Azure provides a tenant ID but no usable cached session, the diagnostic print
 
 A persistent denial is an account/authorization boundary:
 
+- If CLI sign-in still reports `TF400813`/401 after choosing the intended tenant, but the browser owner can administer this organization, use [the PAT mode](#use-an-azure-devops-pat). Do not reset publishing keys or repeatedly select subscriptions.
 - If the organization cannot authenticate this login, its administrator must check **Organization settings → Users**, the account's membership, linked tenant and sign-in policies. An Azure subscription/account login by itself does not grant DevOps membership.
 - If the organization authenticates the login but project access is denied, check the selected **LASA** project membership and permissions. Full bootstrap needs project creation/administration where applicable, service-connection administration, pipeline administration and resource authorization. Project Administrators normally covers project-level setup; organization policies can impose additional restrictions.
 - If a different project name is intended, set `LASA_AZURE_PROJECT` to that private project's actual name. A missing project is created only after organization authentication is verified; a forbidden project is never treated as absent.
