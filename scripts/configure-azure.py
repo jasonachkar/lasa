@@ -23,6 +23,24 @@ class NoRedirect(HTTPRedirectHandler):
         raise RuntimeError("Azure API redirected the authenticated request; check the organization URL and sign-in tenant")
 
 
+class AzureHTTPError(RuntimeError):
+    def __init__(self, method, path, status, tenant=None):
+        self.status = status
+        self.tenant = tenant
+        super().__init__(f"Azure {method} {path.split('?')[0]} returned HTTP {status}. "
+                         "Check organization membership, project administration and token/tenant access. "
+                         "The response body is suppressed to protect secrets.")
+
+
+def tenant_challenge(headers):
+    # Retain only a tenant GUID from Microsoft's fixed authentication authorities.
+    # Never display the complete authentication header or arbitrary server text.
+    challenge = headers.get("WWW-Authenticate", "") if headers else ""
+    match = re.search(r"https://(?:login\.windows\.net|login\.microsoftonline\.com)/"
+                      r"([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})(?:[/\"\s]|$)", challenge)
+    return match.group(1).lower() if match else None
+
+
 class Azure:
     def __init__(self, organization, token):
         if not re.fullmatch(r"https://dev\.azure\.com/[A-Za-z0-9][A-Za-z0-9-]*/?", organization):
@@ -42,11 +60,112 @@ class Azure:
         except HTTPError as error:
             if missing and error.code == 404:
                 return None
-            raise RuntimeError(f"Azure {method} {path.split('?')[0]} returned HTTP {error.code}. "
-                               "Check organization membership, project administration and token/tenant access. "
-                               "The response body is suppressed to protect secrets.") from None
+            raise AzureHTTPError(method, path, error.code, tenant_challenge(error.headers)) from None
         except (URLError, TimeoutError) as error:
             raise RuntimeError(f"Azure {method} request failed ({type(error).__name__}); check connectivity and retry.") from None
+
+
+def azure_login(tenant):
+    args = ["az", "login", "--allow-no-subscriptions", "--output", "none"]
+    if tenant:
+        args.extend(["--tenant", tenant])
+    print("Sign in with the Microsoft account that opens the selected Azure DevOps organization in your browser.", flush=True)
+    subprocess.run(args, check=True)
+
+
+def azure_token(tenant):
+    args = ["az", "account", "get-access-token", "--resource", "499b84ac-1321-427f-aa17-267ca6975798",
+            "--query", "accessToken", "--output", "tsv"]
+    if tenant:
+        args.extend(["--tenant", tenant])
+    token = command(*args, stderr=subprocess.DEVNULL)
+    if not token:
+        raise RuntimeError("Azure CLI returned no Azure DevOps access token; rerun bootstrap with --reauth.")
+    return token
+
+
+def authenticated_azure(organization, project_name, tenant=None, reauthenticate=False):
+    # Read-only preflight precedes key preparation/export and all remote writes.
+    Azure(organization, "")  # Validate credential destination before invoking sign-in.
+    if tenant and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}", tenant):
+        raise ValueError("LASA_AZURE_TENANT must be a tenant ID or tenant domain, not a URL")
+    if reauthenticate:
+        azure_login(tenant)
+    try:
+        token = azure_token(tenant)
+    except subprocess.CalledProcessError:
+        if reauthenticate:
+            raise RuntimeError("Azure CLI could not obtain an Azure DevOps token after sign-in. "
+                               "Check the selected account, tenant and organization sign-in policy.") from None
+        azure_login(tenant)
+        try:
+            token = azure_token(tenant)
+        except subprocess.CalledProcessError:
+            raise RuntimeError("Azure CLI could not obtain an Azure DevOps token. "
+                               "Use LASA_AZURE_TENANT for the organization tenant and rerun --reauth.") from None
+    attempted = set()
+    while True:
+        api = Azure(organization, token)
+        project_error = None
+        try:
+            project = api.request("GET", "_apis/projects/" + quote(project_name, safe=""), missing=True)
+            if project is not None:
+                if project.get("visibility") != "private":
+                    raise ValueError("The selected Azure project is not private; choose a private LASA_AZURE_PROJECT")
+                print("Azure project access verified: " + api.base + "/" + quote(project_name, safe=""), flush=True)
+                return api
+        except AzureHTTPError as error:
+            if error.status not in (401, 403):
+                raise
+            project_error = error
+        try:
+            connection = api.request("GET", "_apis/connectionData")
+            identity = connection.get("authenticatedUser", {})
+            organization_access = bool(identity.get("id") and identity["id"] not in (
+                "00000000-0000-0000-0000-000000000000", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+                                       and identity.get("isActive") is not False)
+        except AzureHTTPError as error:
+            if error.status not in (401, 403):
+                raise
+            organization_access = False
+            organization_error = error
+        else:
+            organization_error = None
+        if organization_access:
+            if project_error is None:
+                return api  # Authenticated organization; configure can create the missing private project.
+            raise RuntimeError(f"{project_error} The organization authenticated this login, but access to project "
+                               f"'{project_name}' was denied. Sign in with its owner account or ask an organization/project "
+                               "administrator to check project membership and permissions. Setup needs project, service-connection "
+                               "and pipeline administration; it cannot grant itself access. "
+                               "Rerun bash scripts/bootstrap-azure.sh --reauth if the cached account is wrong. "
+                               "No publishing keys or pipeline configuration were changed by this preflight.") from None
+        hint = (organization_error.tenant if organization_error else None) or (project_error.tenant if project_error else None)
+        if hint and not tenant and not attempted:
+            attempted.add(hint)
+            print("Azure identified its organization tenant; checking that tenant's owner session.", flush=True)
+            try:
+                token = azure_token(hint)
+            except subprocess.CalledProcessError:
+                if not reauthenticate:
+                    raise RuntimeError(f"Azure requires tenant {hint}. Rerun with "
+                                       f"LASA_AZURE_TENANT={hint} bash scripts/bootstrap-azure.sh --reauth. "
+                                       "Existing signing keys were not changed.") from None
+                azure_login(hint)
+                try:
+                    token = azure_token(hint)
+                except subprocess.CalledProcessError:
+                    raise RuntimeError("Azure CLI could not obtain the organization-tenant token after sign-in. "
+                                       "Check account membership and tenant sign-in policy.") from None
+            continue
+        status = project_error.status if project_error else (organization_error.status if organization_error else "unknown")
+        raise RuntimeError(f"Azure organization access could not be verified (HTTP {status}): {api.base}. "
+                           "A cached Azure CLI token does not establish Azure DevOps membership. "
+                           "Open this organization in your browser and use that same Microsoft account with "
+                           "bash scripts/bootstrap-azure.sh --reauth. If access is still denied, its administrator must check "
+                           "Organization settings > Users and the organization's tenant/sign-in policies. "
+                           "Set LASA_AZURE_TENANT if a specific tenant is required. "
+                           "No publishing keys or pipeline configuration were changed by this preflight.") from None
 
 
 def configure(api, project_name, secrets, public, branch, configure_only):
@@ -136,12 +255,15 @@ def main():
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9 _-]{0,63}", project):
         raise ValueError("Invalid LASA_AZURE_PROJECT name")
     state = Path.home() / "Library/Application Support/lasa-distribution/jasonachkar_lasa"
-    for path in (state / "deploy-key", state / "signing-fingerprint", state / "gnupg", state / "apk-signing-key.pem", state / "apk-public-key.sha256"):
+    for path in (state / "deploy-key", state / "signing-fingerprint", state / "gnupg"):
         if not path.exists():
             raise ValueError(f"Restore existing publishing state: {path}. Keys will not be regenerated.")
     fingerprint = (state / "signing-fingerprint").read_text().strip()
     if not re.fullmatch(r"[A-F0-9]{40}", fingerprint):
         raise ValueError("Invalid local signing fingerprint")
+    api = authenticated_azure(organization, project, os.environ.get("LASA_AZURE_TENANT"),
+                              os.environ.get("LASA_AZURE_REAUTH") == "1")
+    subprocess.run(["bash", str(Path(__file__).resolve().parent / "prepare-apk-key.sh"), str(state), "jasonachkar/lasa"], check=True)
     # Short alias avoids macOS GnuPG Unix socket length limits.
     with tempfile.TemporaryDirectory(prefix="lasa-gpg-", dir="/tmp") as temp:
         alias = Path(temp) / "home"
@@ -160,8 +282,7 @@ def main():
               "DISTRIBUTION_BRANCH": command("gh", "api", "repos/jasonachkar/homebrew-lasa", "--jq", ".default_branch"),
               "APT_REPOSITORY_URL": "https://lasa.secureobs.com/apt", "DOCS_SITE_URL": "https://lasa.secureobs.com/"}
     branch = "refs/heads/" + command("git", "branch", "--show-current")
-    token = command("az", "account", "get-access-token", "--resource", "499b84ac-1321-427f-aa17-267ca6975798", "--query", "accessToken", "--output", "tsv")
-    configure(Azure(organization, token), project, secrets, public, branch,
+    configure(api, project, secrets, public, branch,
               os.environ.get("LASA_AZURE_CONFIGURE_ONLY") == "1")
 
 

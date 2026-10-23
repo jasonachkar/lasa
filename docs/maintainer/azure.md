@@ -12,7 +12,7 @@ bash scripts/bootstrap-azure.sh
 
 The defaults are organization `https://dev.azure.com/jasonachkardiab`, private project `LASA`, pipeline `LASA`, source `jasonachkar/lasa`, and public distribution `jasonachkar/homebrew-lasa`. The command installs missing Azure CLI, GitHub CLI, GnuPG and Python tools through the existing Homebrew installation. It opens account sign-in when required, creates/reuses the project and GitHub service connection, installs encrypted pipeline secrets, authorizes only this pipeline to use its connection, switches the publishing provider, and queues the current branch. It does not merge a feature branch. Pushes to `main` subsequently trigger verification and releases automatically.
 
-Use `--configure-only` to avoid queuing. `LASA_AZURE_ORGANIZATION` and `LASA_AZURE_PROJECT` override the organization/project. The source, distribution and domain are intentionally fixed to this deployment. The bootstrap checks the checkout matches its remote branch before configuring anything. Existing keys are reused from `~/Library/Application Support/lasa-distribution/jasonachkar_lasa`; a missing state backup stops setup rather than rotating keys and breaking installations. It does not change DNS, nameservers, or the unrelated `cybersecurity-writeups` repository or `docs.jasonachkardiab.com` domain.
+Use `--configure-only` to avoid queuing and `--reauth` to open a fresh Azure sign-in without logging out other cached accounts. The flags can be combined. `LASA_AZURE_ORGANIZATION` and `LASA_AZURE_PROJECT` override the organization/project; `LASA_AZURE_TENANT` selects its tenant ID/domain when required. Azure project/organization access is checked before preparing, registering or exporting publishing keys. The source, distribution and domain are intentionally fixed to this deployment. The bootstrap checks the checkout matches its remote branch before configuring anything. Existing keys are reused from `~/Library/Application Support/lasa-distribution/jasonachkar_lasa`; a missing state backup stops setup rather than rotating keys and breaking installations. It does not change DNS, nameservers, or the unrelated `cybersecurity-writeups` repository or `docs.jasonachkardiab.com` domain.
 
 ## Publish the website immediately without a build runner
 
@@ -36,7 +36,7 @@ Successful verification builds Linux AMD64 and ARM64 binaries, DEBs, archives, l
 
 The bootstrap uses Azure CLI's owner login with the Azure DevOps audience, over TLS, to administer the selected organization/project. It uses the owner's existing local GitHub CLI session for setup. By default it copies that session's GitHub token into the encrypted Azure GitHub connection and encrypted `GH_TOKEN` pipeline variable. That token retains its existing account scopes; it is not automatically restricted to LASA. For least privilege, set `LASA_GITHUB_TOKEN` locally to a dedicated token authorized for source checkout, tags, releases and build statuses for this repository, including organization SSO where required. Never put it in a command committed to Git or paste it into chat. The owner CLI session still sets the repository publishing-provider variable. Expired/revoked tokens require rerunning bootstrap with a usable session/token.
 
-Encrypted Azure pipeline variables are `GH_TOKEN`, `APT_SIGNING_KEY` and `DISTRIBUTION_DEPLOY_KEY`. The latter two are copied from existing local private state. Public variables contain the fingerprint, destination branch and APT/docs URLs. No GoDaddy credentials are copied into Azure. Anyone able to run arbitrary code with these secrets could sign packages and publish the distribution; limit project/pipeline administration accordingly. The script sends secret JSON directly from memory over HTTPS, suppresses API error bodies, and does not write credential payload files. Azure log masking is supplementary protection, not permission to print secrets.
+Encrypted Azure pipeline variables are `GH_TOKEN`, `APT_SIGNING_KEY`, `APK_SIGNING_KEY` and `DISTRIBUTION_DEPLOY_KEY`. Signing/deploy material is copied from local private state. Public variables contain the fingerprint, destination branch and APT/docs URLs. No GoDaddy credentials are copied into Azure. Anyone able to run arbitrary code with these secrets could sign packages and publish the distribution; limit project/pipeline administration accordingly. The script sends secret JSON directly from memory over HTTPS, suppresses API error bodies, and does not write credential payload files. Azure log masking is supplementary protection, not permission to print secrets.
 
 Azure releases have an OpenPGP-signed `SHA256SUMS.asc`, not GitHub Actions OIDC attestations. The public key included in the release is a convenience; consumers must authenticate its fingerprint independently. GitHub-origin releases continue to require GitHub attestation verification. The retry path detects an existing GitHub-origin release without a detached signature and requires GitHub attestation verification instead. A present detached signature must verify against the configured fingerprint; verification failures never fall back to another policy.
 
@@ -64,3 +64,27 @@ The visual reference is the owner's [ModelFence documentation source](https://gi
 ## Additional Linux package repositories
 
 Rerun the updated `bash scripts/bootstrap-azure.sh` from a clean pushed checkout to configure the additional Alpine RSA key and pin without resetting existing OpenPGP/deploy keys. The pipeline builds/signs/indexes DEB, RPM, Pacman and APK packages and retains the Homebrew tap. Native package-client integration runs in isolated containers on the Linux runner; no Linux machine or Docker installation is required on the Mac. See [native distribution design](linux-distribution.md). Stable releases remain restricted to `main`; a feature-branch bootstrap queues verification/current docs only.
+
+
+## Recover from an Azure project HTTP 403
+
+A successful GitHub `APK_SIGNING_KEY` setup is separate from Azure authorization. Keep the saved keys and state directory. A token issued by Azure CLI can be valid while its cached account/tenant has no access to the DevOps organization or the private LASA project.
+
+From the clean updated checkout on the Mac:
+
+```bash
+git pull --ff-only
+bash scripts/bootstrap-azure.sh --reauth
+```
+
+Choose the same Microsoft account that can open `https://dev.azure.com/jasonachkardiab` in the browser. This opens fresh Azure sign-in without clearing other cached accounts. When the trusted Microsoft authentication challenge identifies a different organization tenant, the preflight checks that tenant's cached session once. With `--reauth` it can open the required tenant sign-in. An explicit `LASA_AZURE_TENANT` is always honored; the script does not replace it silently.
+
+If Azure provides a tenant ID but no usable cached session, the diagnostic prints a local command using that non-secret tenant ID. Do not paste access tokens into chat or put them in command arguments. The preflight sends credentials only to the validated Azure DevOps organization and does not follow authenticated redirects. It retains only a tenant GUID from recognized Microsoft authentication authorities; headers and response bodies stay suppressed.
+
+A persistent denial is an account/authorization boundary:
+
+- If the organization cannot authenticate this login, its administrator must check **Organization settings → Users**, the account's membership, linked tenant and sign-in policies. An Azure subscription/account login by itself does not grant DevOps membership.
+- If the organization authenticates the login but project access is denied, check the selected **LASA** project membership and permissions. Full bootstrap needs project creation/administration where applicable, service-connection administration, pipeline administration and resource authorization. Project Administrators normally covers project-level setup; organization policies can impose additional restrictions.
+- If a different project name is intended, set `LASA_AZURE_PROJECT` to that private project's actual name. A missing project is created only after organization authentication is verified; a forbidden project is never treated as absent.
+
+No automatic membership/role grants or policy changes are attempted. Authentication failure stops before publishing key updates, secret export, pipeline mutation or publisher switching. A later API permission failure still names the rejected operation/status. The tests cover read-only preflight, project/organization denial, missing/anonymous access, explicit sign-in, tenant hints/override, redaction and non-authentication failures. Live authorization must be verified by the owner's account.

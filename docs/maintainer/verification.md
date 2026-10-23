@@ -197,3 +197,8 @@ Executed checks for this extension:
 An additional real runtime-provider check used the available Docker 28.4.0 UNIX API and a short-lived hardened Alpine fixture. `inspect.containers` completed and persisted the selected configuration asset without retaining its synthetic environment secret. This supersedes the earlier statement that no real Docker provider was queried; it validates that particular read-only provider case, not every runtime version or privileged-container consequence.
 
 These results do not replace privileged VM/kernel/provider validation or native ARM64 runtime tests. The current official Go vulnerability lookup remains blocked by the proxy as recorded above. No live distribution/domain publication or new production release was possible with the cloud workspace's credentials. Source commits and isolated publication tests are separate from a successful owner-authorized deployment. The updated owner bootstrap configures the additional key/pipeline variables; stable package publication remains restricted to trusted `main` runs.
+
+
+### Azure authorization recovery
+
+The Azure bootstrap now supports `--reauth` and an explicit `LASA_AZURE_TENANT`. A read-only preflight checks project/organization access before key preparation/export or remote configuration writes. Microsoft tenant hints are restricted to GUIDs from known authentication authorities and one retry; forbidden projects are not treated as missing. Errors distinguish organization authentication from project authorization while suppressing response bodies and credentials. The 26 Python tests, shell syntax/ShellCheck and actionlint passed locally; the owner's live Azure 403 cannot be resolved or validated from this workspace's account.
