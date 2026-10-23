@@ -127,6 +127,33 @@ class HTTPContractTests(unittest.TestCase):
         self.assertEqual([(method, path, version) for method, path, version, *_ in self.calls],
                          [("GET", "_apis/projects/LASA", "7.1"), ("GET", "_apis/connectionData", "7.1-preview.1")])
 
+    def test_real_http_retry_recognizes_project_description_after_list_projection(self):
+        project = {"id": "project-id", "name": "LASA"}
+        client = self.client(pat=True)
+        first = module.configure_github_connection(client, project, "fixture-github-token")
+        self.backend.endpoints[0].pop("description")
+        self.backend.endpoints[0].pop("data")
+        self.calls.clear()
+        second = module.configure_github_connection(client, project, "fixture-github-token")
+        self.assertEqual(first["id"], second["id"])
+        self.assertTrue(any(method == "GET" and path.endswith("/endpoints/endpoint-id") for method, path, *_ in self.calls))
+        self.assertEqual([method for method, *_ in self.calls if method != "GET"], ["PUT"])
+
+    def test_real_http_unmarked_legacy_connection_recovers_once_without_replacement(self):
+        self.backend = FakeAzure(existing=True)
+        self.backend.endpoints[0]["description"] = ""
+        project = {"id": "project-id", "name": "LASA"}
+        client = self.client(pat=True)
+        with patch("builtins.print"):
+            first = module.configure_github_connection(client, project, "fixture-github-token")
+        self.assertEqual(first["name"], "LASA-GitHub-bootstrap")
+        self.calls.clear()
+        second = module.configure_github_connection(client, project, "fixture-github-token")
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(len(self.backend.endpoints), 2)
+        self.assertFalse(any(method == "POST" or method == "PUT" and path.endswith("/endpoints/endpoint-id")
+                             for method, path, *_ in self.calls))
+
     def test_old_version_reproduces_contract_failure_with_actionable_diagnostic(self):
         with self.assertRaisesRegex(module.AzureHTTPError, "API version: 7.1") as result:
             self.client().request("GET", "_apis/connectionData", version="7.1")

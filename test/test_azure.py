@@ -1,5 +1,6 @@
 """Azure orchestration contract tests; no network access or real secrets."""
 import importlib.util
+from copy import deepcopy
 import io
 import os
 from pathlib import Path
@@ -25,6 +26,9 @@ class FakeAzure:
         self.existing, self.active, self.hosted = existing, active, hosted
         self.definition = {"id": 9, "revision": 2, "repository": {"name": "jasonachkar/lasa"},
                            "process": {"yamlFilename": "azure-pipelines.yml"}}
+        self.endpoints = [{"id": "endpoint-id", "name": "LASA-GitHub", "type": "github", "url": "https://github.com",
+                           "isShared": False, "isReady": True, "description": "Owner-configured LASA publishing connection",
+                           "serviceEndpointProjectReferences": [{"projectReference": {"id": "project-id", "name": "LASA"}}]}] if existing else []
 
     def request(self, method, path, data=None, **kwargs):
         self.calls.append((method, path, data))
@@ -32,8 +36,19 @@ class FakeAzure:
             return {"id": "project-id", "visibility": "private", "state": "wellFormed"}
         if "serviceendpoint/endpoints" in path:
             if method == "GET":
-                return {"value": [{"id": "endpoint-id", "name": "LASA-GitHub", "description": "Owner-configured LASA publishing connection"}] if self.existing else []}
-            return {"id": "endpoint-id"}
+                if "serviceendpoint/endpoints/" in path:
+                    return deepcopy(next(item for item in self.endpoints if item["id"] == path.rsplit("/", 1)[-1]))
+                # Azure's list projection need not contain full ownership metadata.
+                return {"value": [{"id": item["id"], "name": item["name"]} for item in self.endpoints]}
+            if method == "POST":
+                endpoint = dict(deepcopy(data), id="endpoint-id" if not self.endpoints else "bootstrap-endpoint-id")
+                self.endpoints.append(endpoint)
+                return deepcopy(endpoint)
+            if method == "PUT":
+                index = next(index for index, item in enumerate(self.endpoints) if item["id"] == data["id"])
+                self.endpoints[index] = deepcopy(data)
+                return deepcopy(data)
+            raise AssertionError((method, path))
         if "distributedtask/queues" in path:
             return {"value": [{"id": 4, "name": "Azure Pipelines", "pool": {"isHosted": True}}] if self.hosted else []}
         if "build/definitions" in path:
@@ -75,6 +90,67 @@ class ConfigureTests(unittest.TestCase):
         self.assertFalse(any(method == "POST" for method, _, _ in api.calls))
         self.assertTrue(any(method == "PUT" and path.endswith("build/definitions/9") for method, path, _ in api.calls))
 
+    def test_project_reference_description_recovers_missing_top_level_marker(self):
+        api = FakeAzure(existing=True)
+        api.endpoints[0].pop("description")
+        api.endpoints[0]["serviceEndpointProjectReferences"][0]["description"] = module.GITHUB_CONNECTION_DESCRIPTION
+        self.run_configure(api, True)
+        self.assertTrue(any(method == "GET" and path.endswith("serviceendpoint/endpoints/endpoint-id") for method, path, _ in api.calls))
+        self.assertTrue(any(method == "PUT" and path.endswith("serviceendpoint/endpoints/endpoint-id") for method, path, _ in api.calls))
+        self.assertFalse(any(method == "POST" and "serviceendpoint" in path for method, path, _ in api.calls))
+
+    def test_unmarked_connection_is_preserved_and_dedicated_connection_is_used(self):
+        api = FakeAzure(existing=True)
+        api.endpoints[0]["description"] = ""
+        original = deepcopy(api.endpoints[0])
+        self.run_configure(api, True)
+        self.assertEqual(api.endpoints[0], original)
+        endpoint = next(data for method, path, data in api.calls if method == "POST" and "serviceendpoint" in path)
+        self.assertEqual(endpoint["name"], "LASA-GitHub-bootstrap")
+        self.assertEqual(endpoint["data"][module.GITHUB_CONNECTION_MARKER], "jasonachkar/lasa")
+        self.assertEqual(endpoint["serviceEndpointProjectReferences"][0]["description"], module.GITHUB_CONNECTION_DESCRIPTION)
+        definition = next(data for method, path, data in api.calls if method == "PUT" and "build/definitions" in path)
+        self.assertEqual(definition["repository"]["properties"]["connectedServiceId"], "bootstrap-endpoint-id")
+        self.assertTrue(all(not (method == "PUT" and "serviceendpoint" in path) for method, path, _ in api.calls))
+
+    def test_unknown_shared_or_differently_scoped_connections_are_never_overwritten(self):
+        for changes in ({"isShared": True}, {"url": "https://enterprise.example.test"},
+                        {"type": "other"}, {"data": {module.GITHUB_CONNECTION_MARKER: "other/repo"}},
+                        {"serviceEndpointProjectReferences": [{"projectReference": {"id": "different-project"}}]}):
+            with self.subTest(changes=changes):
+                api = FakeAzure(existing=True)
+                api.endpoints[0].update(changes)
+                before = deepcopy(api.endpoints[0])
+                self.run_configure(api, True)
+                self.assertEqual(api.endpoints[0], before)
+                self.assertEqual(api.endpoints[1]["name"], "LASA-GitHub-bootstrap")
+
+    def test_both_reserved_names_unowned_stop_without_credential_writes(self):
+        api = FakeAzure(existing=True)
+        api.endpoints[0]["description"] = "Unrelated connection"
+        api.endpoints.append(dict(deepcopy(api.endpoints[0]), name="LASA-GitHub-bootstrap", id="other-endpoint-id"))
+        with self.assertRaisesRegex(ValueError, "Both reserved LASA GitHub connection names"):
+            self.run_configure(api, True)
+        self.assertTrue(all(method == "GET" for method, _, _ in api.calls))
+        self.run_command.assert_not_called()
+
+    def test_duplicate_connection_names_stop_before_any_credential_writes(self):
+        api = FakeAzure(existing=True)
+        api.endpoints.append(dict(deepcopy(api.endpoints[0]), id="duplicate-endpoint-id"))
+        with self.assertRaisesRegex(ValueError, "Multiple connections"):
+            self.run_configure(api, True)
+        self.assertTrue(all(method == "GET" for method, _, _ in api.calls))
+        self.run_command.assert_not_called()
+
+    def test_malformed_ownership_metadata_is_not_treated_as_owned(self):
+        for changes in ({"url": None}, {"type": None}, {"data": "invalid"},
+                        {"serviceEndpointProjectReferences": "invalid"},
+                        {"serviceEndpointProjectReferences": [{"projectReference": None}]}):
+            with self.subTest(changes=changes):
+                endpoint = deepcopy(FakeAzure(existing=True).endpoints[0])
+                endpoint.update(changes)
+                self.assertFalse(module.bootstrap_owns_connection(endpoint, "project-id"))
+
     def test_update_preserves_revision_folder_and_custom_triggers_while_repairing_github_metadata(self):
         api = FakeAzure(existing=True)
         api.definition.update({"path": "\\Security", "triggers": [{"settingsSourceType": 2, "triggerType": 2}],
@@ -96,7 +172,7 @@ class ConfigureTests(unittest.TestCase):
                 response["isReady"] = False
             return response
         api.request = unready
-        with self.assertRaisesRegex(RuntimeError, "LASA-GitHub is not ready"):
+        with self.assertRaisesRegex(RuntimeError, "connection is not ready"):
             self.run_configure(api)
         self.assertFalse(any(method != "GET" and "build/definitions" in path for method, path, _ in api.calls))
         self.run_command.assert_not_called()

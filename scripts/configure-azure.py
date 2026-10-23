@@ -406,6 +406,85 @@ def authenticated_azure(organization, project_name, tenant=None, reauthenticate=
                            "No publishing keys or pipeline configuration were changed by this preflight.") from None
 
 
+GITHUB_CONNECTION_DESCRIPTION = "Owner-configured LASA publishing connection"
+GITHUB_CONNECTION_MARKER = "lasaBootstrapRepository"
+GITHUB_CONNECTION_NAMES = ("LASA-GitHub", "LASA-GitHub-bootstrap")
+
+
+def bootstrap_owns_connection(endpoint, project_id):
+    # Markers establish operational provenance, not a permission grant. Never
+    # overwrite shared, differently scoped or non-GitHub connections.
+    kind, url = endpoint.get("type"), endpoint.get("url")
+    if (not isinstance(kind, str) or kind.lower() != "github" or not isinstance(url, str) or url.rstrip("/") != "https://github.com"
+            or endpoint.get("isShared") is not False):
+        return False
+    references = endpoint.get("serviceEndpointProjectReferences") or []
+    if not isinstance(references, list):
+        return False
+    for reference in references:
+        if (not isinstance(reference, dict) or not isinstance(reference.get("projectReference"), dict)
+                or reference["projectReference"].get("id") != project_id):
+            return False
+    data = endpoint.get("data") or {}
+    if not isinstance(data, dict):
+        return False
+    marker = data.get(GITHUB_CONNECTION_MARKER)
+    if marker is not None and marker != "jasonachkar/lasa":
+        return False
+    return (marker == "jasonachkar/lasa" or endpoint.get("description") == GITHUB_CONNECTION_DESCRIPTION
+            or any(reference.get("description") == GITHUB_CONNECTION_DESCRIPTION for reference in references))
+
+
+def configure_github_connection(api, project, token):
+    prefix = quote(project["id"], safe="") + "/_apis/"
+    # Include failed connections and other types so name collisions do not get
+    # mistaken for absence. List projections are insufficient for ownership checks.
+    endpoints = api.request("GET", prefix + "serviceendpoint/endpoints?includeFailed=true").get("value")
+    if not isinstance(endpoints, list) or any(not isinstance(item, dict) for item in endpoints):
+        raise RuntimeError("Azure service-connection listing returned an invalid collection; response withheld.")
+    candidates = {}
+    for name in GITHUB_CONNECTION_NAMES:
+        matches = [item for item in endpoints if item.get("name") == name]
+        if len(matches) > 1:
+            raise ValueError("Multiple connections use reserved name " + name + "; refusing an ambiguous update")
+        if matches:
+            endpoint_id = matches[0].get("id")
+            if not isinstance(endpoint_id, str) or not re.fullmatch(r"[A-Za-z0-9-]{1,128}", endpoint_id):
+                raise RuntimeError("Azure returned an invalid LASA service-connection ID; no credentials were replaced.")
+            detail = api.request("GET", prefix + "serviceendpoint/endpoints/" + quote(endpoint_id, safe=""))
+            if detail.get("id") != endpoint_id or detail.get("name") != name:
+                raise RuntimeError("Azure service-connection details changed during setup; retry before replacing credentials.")
+            candidates[name] = detail
+    owned = next((item for item in candidates.values() if bootstrap_owns_connection(item, project["id"])), None)
+    if owned:
+        name = owned["name"]
+    else:
+        name = next((item for item in GITHUB_CONNECTION_NAMES if item not in candidates), None)
+        if name is None:
+            raise ValueError("Both reserved LASA GitHub connection names are occupied by connections whose ownership/scope "
+                             "cannot be verified. Existing credentials were left unchanged; resolve the reserved-name conflict in this project.")
+        if candidates:
+            print("Existing connection metadata does not establish exclusive bootstrap ownership; creating separate " + name + ".", flush=True)
+    endpoint = {"name": name, "type": "github", "url": "https://github.com",
+                "authorization": {"scheme": "PersonalAccessToken", "parameters": {"accessToken": token}},
+                "isShared": False, "isReady": True,
+                "description": GITHUB_CONNECTION_DESCRIPTION,
+                "data": {GITHUB_CONNECTION_MARKER: "jasonachkar/lasa"},
+                "serviceEndpointProjectReferences": [{"projectReference": {"id": project["id"], "name": project["name"]},
+                                                      "name": name, "description": GITHUB_CONNECTION_DESCRIPTION}]}
+    if owned:
+        endpoint["id"] = owned["id"]
+        endpoint = api.request("PUT", "_apis/serviceendpoint/endpoints/" + quote(owned["id"], safe=""), endpoint)
+    else:
+        endpoint = api.request("POST", "_apis/serviceendpoint/endpoints", endpoint)
+    if not isinstance(endpoint.get("id"), str) or not re.fullmatch(r"[A-Za-z0-9-]{1,128}", endpoint["id"]):
+        raise RuntimeError("Azure did not return a service-connection ID; pipeline creation stopped.")
+    if endpoint.get("isReady") is False:
+        raise RuntimeError("Azure reports that the selected LASA-GitHub connection is not ready. Check its GitHub credential and project access. "
+                           "The pipeline definition was not written and the publishing provider was not switched.")
+    return endpoint
+
+
 def configure(api, project_name, secrets, public, branch, configure_only):
     project_path = quote(project_name, safe="")
     project = api.request("GET", f"_apis/projects/{project_path}", missing=True)
@@ -441,26 +520,7 @@ def configure(api, project_name, secrets, public, branch, configure_only):
         if (definition.get("repository", {}).get("name") != "jasonachkar/lasa"
                 or definition.get("process", {}).get("yamlFilename") != "azure-pipelines.yml"):
             raise ValueError("Existing LASA pipeline belongs to another repository or YAML path; refusing to overwrite")
-    endpoints = api.request("GET", prefix + "serviceendpoint/endpoints?type=github")["value"]
-    matches = [item for item in endpoints if item["name"] == "LASA-GitHub"]
-    if len(matches) > 1:
-        raise ValueError("Multiple LASA-GitHub connections exist; refusing an ambiguous update")
-    endpoint = {"name": "LASA-GitHub", "type": "github", "url": "https://github.com",
-                "authorization": {"scheme": "PersonalAccessToken", "parameters": {"accessToken": secrets["GH_TOKEN"]}},
-                "isShared": False, "isReady": True,
-                "description": "Owner-configured LASA publishing connection",
-                "serviceEndpointProjectReferences": [{"projectReference": {"id": project["id"], "name": project_name},
-                                                      "name": "LASA-GitHub"}]}
-    if matches:
-        if matches[0].get("description") != "Owner-configured LASA publishing connection":
-            raise ValueError("The existing LASA-GitHub connection was not created by this bootstrap; refusing to replace its credentials")
-        endpoint["id"] = matches[0]["id"]
-        endpoint = api.request("PUT", "_apis/serviceendpoint/endpoints/" + endpoint["id"], endpoint)
-    else:
-        endpoint = api.request("POST", "_apis/serviceendpoint/endpoints", endpoint)
-    if endpoint.get("isReady") is False:
-        raise RuntimeError("Azure reports that LASA-GitHub is not ready. Check the connection's GitHub credential and project access. "
-                           "The pipeline definition was not written and the publishing provider was not switched.")
+    endpoint = configure_github_connection(api, {"id": project["id"], "name": project_name}, secrets["GH_TOKEN"])
     variables = {name: {"value": value, "isSecret": False} for name, value in public.items()}
     variables.update({name: {"value": value, "isSecret": True} for name, value in secrets.items()})
     definition.setdefault("path", "\\")

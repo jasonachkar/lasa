@@ -14,6 +14,8 @@ The defaults are organization `https://dev.azure.com/jasonachkardiab`, private p
 
 The wrapper prints the checked-out bootstrap revision and the Python script prints its selected authentication mode. `--reauth` is spelled with two hyphens and `reauth` in that order. A mismatch with the remote branch asks you to pull remote changes or push your intended commit before setup.
 
+The preferred GitHub service connection is `LASA-GitHub`. When an existing connection with that name cannot be safely identified as bootstrap-owned, setup creates an independent `LASA-GitHub-bootstrap` connection and uses its ID in the LASA pipeline. See [connection retry recovery](#recover-from-a-service-connection-ownership-error).
+
 Use `--configure-only` to avoid queuing and `--reauth` to open a fresh Azure sign-in without logging out other cached accounts. Those flags can be combined. Alternatively, use [`--devops-pat`](#use-an-azure-devops-pat) when the browser owner can access DevOps but CLI sign-in repeatedly fails; this mode skips Azure CLI and tenant selection. It can be combined with `--configure-only`, but not `--reauth`. `LASA_AZURE_ORGANIZATION` and `LASA_AZURE_PROJECT` override the organization/project; `LASA_AZURE_TENANT` selects its tenant ID/domain in CLI mode only. Azure project/organization access is checked before preparing, registering or exporting publishing keys. The source, distribution and domain are intentionally fixed to this deployment. The bootstrap checks the checkout matches its remote branch before configuring anything. Existing keys are reused from `~/Library/Application Support/lasa-distribution/jasonachkar_lasa`; a missing state backup stops setup rather than rotating keys and breaking installations. It does not change DNS, nameservers, or the unrelated `cybersecurity-writeups` repository or `docs.jasonachkardiab.com` domain.
 
 ## Publish the website immediately without a build runner
@@ -116,6 +118,20 @@ Earlier bootstrap revisions omitted the provider's `apiUrl` and branch property.
 Before preparing/exporting publishing keys, normal setup now verifies that the exact GitHub token being copied to Azure can read `azure-pipelines.yml` on the selected pushed branch, using the explicit `github.com` host. This detects a dedicated `LASA_GITHUB_TOKEN` whose access differs from the owner's default GitHub session. This check establishes repository contents access; Azure's provider authorization and webhook policies can impose additional requirements.
 
 For further validation failures, the error retains fixed classifications and known field names such as `repository.properties.apiUrl`, plus `azure-pipelines.yml` line/column locations when Azure supplies them. It can identify missing arguments, pipeline validation, unavailable YAML, connection authorization and hosted-job capacity. It never prints arbitrary messages, quoted YAML values, token/key material or raw response bodies. Unrecognized details stay suppressed rather than being guessed or echoed. Error reads remain bounded to 64 KiB and do not bypass a failed validation.
+
+## Recover from a service-connection ownership error
+
+Earlier revisions required the top-level `description` in Azure's connection listing to exactly match the bootstrap's description. That was too narrow: list responses can omit metadata, and the API also models the description inside `serviceEndpointProjectReferences`. A retry could therefore stop with “was not created by this bootstrap” after a successful earlier connection creation.
+
+Update the checkout and rerun the same bootstrap command with a valid owner credential. No deletion, credential reset or manual ownership override is needed for the normal retry path:
+
+- Setup lists existing connections, including failed connections and other types, then fetches project-scoped details for the reserved LASA names.
+- An update requires the public GitHub URL, GitHub type, explicit non-shared status, compatible project references and a recognized bootstrap marker. It recognizes the legacy top-level description, the matching project's description, or the `data.lasaBootstrapRepository=jasonachkar/lasa` marker. Conflicting repository markers, different project references and shared connections are not updated.
+- Newly created/updated connections include the marker and both description locations. A recognized failed connection can receive the owner's current GitHub credential on retry.
+- If the existing `LASA-GitHub` connection has missing or unrecognized provenance, it remains untouched. Setup creates a separate `LASA-GitHub-bootstrap` connection, configures the pipeline to use it, and reuses that connection on subsequent retries. It does not keep creating new connections after each failed pipeline-definition request.
+- Duplicate reserved names, changing connection details, malformed IDs or both names being occupied by unverifiable connections stop with an explicit diagnostic before replacing credentials. Ownership markers are operational metadata, not an authorization boundary or a substitute for Azure permissions.
+
+The original connection may remain in the project after automatic recovery; the bootstrap does not delete it or change its credentials. Only the selected LASA connection and hosted queue are authorized for this pipeline. Publishing signing/deploy keys retain their existing identities.
 
 ## Costs, consent and failure recovery
 
