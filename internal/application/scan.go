@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -40,7 +41,7 @@ func (e Engine) Scan(parent context.Context, c config.Config) (domain.Snapshot, 
 	if _, err := rand.Read(id[:]); err != nil {
 		return s, fmt.Errorf("scan identity entropy: %w", err)
 	}
-	s = domain.Snapshot{Schema: domain.SchemaVersion, ScannerVersion: domain.Version, ScanID: hex.EncodeToString(id[:]), Started: time.Now().UTC(), Profile: c.Profile, Host: e.Host, Complete: len(e.Diagnostics) == 0, Diagnostics: append([]domain.Diagnostic(nil), e.Diagnostics...)}
+	s = domain.Snapshot{Schema: domain.SchemaVersion, ScannerVersion: domain.Version, ScanID: hex.EncodeToString(id[:]), Started: time.Now().UTC(), Profile: c.Profile, Inspections: c.Modules(), RequestedRoots: append([]string(nil), c.Roots...), ScopeFingerprint: c.ScopeID(), Host: e.Host, Complete: len(e.Diagnostics) == 0, Diagnostics: append([]domain.Diagnostic(nil), e.Diagnostics...)}
 	for _, stage := range e.Stages {
 		collectors := stage(&s)
 		if len(collectors) > 8 {
@@ -50,7 +51,22 @@ func (e Engine) Scan(parent context.Context, c config.Config) (domain.Snapshot, 
 		var wg sync.WaitGroup
 		for _, source := range collectors {
 			wg.Add(1)
-			go func(source collector.Collector) { defer wg.Done(); results <- source.Collect(ctx) }(source)
+			go func(source collector.Collector) {
+				defer wg.Done()
+				defer func() {
+					if recovered := recover(); recovered != nil {
+						descriptor := source.Descriptor()
+						b := collector.Begin(descriptor.ID, "collector failed before a complete batch could be produced")
+						d := diagnostics.New(descriptor.ID, "collect", "collector boundary", fmt.Errorf("internal collector panic (%T); contact the maintainer with scanner version and diagnostic; stack fingerprint %s", recovered, domain.Hash(string(debug.Stack()))))
+						d.Code = "COLLECTOR_INTERNAL_ERROR"
+						b.Diagnostics = append(b.Diagnostics, d)
+						b.Coverage.Inconclusive++
+						collector.Finish(&b)
+						results <- b
+					}
+				}()
+				results <- source.Collect(ctx)
+			}(source)
 		}
 		wg.Wait()
 		close(results)
@@ -67,6 +83,9 @@ func (e Engine) Scan(parent context.Context, c config.Config) (domain.Snapshot, 
 		s.Complete = false
 		s.Diagnostics = append(s.Diagnostics, diagnostics.New("scan", "collect", s.ScanID, ctx.Err()))
 	}
+	if len(s.Observations) > 200000 || len(s.Assets) > 65536 {
+		return s, fmt.Errorf("RESOURCE_LIMIT: collected evidence exceeds the report contract; narrow roots/inspection budgets")
+	}
 	s.Completed = time.Now().UTC()
 	for i := range s.RuntimeEvents {
 		e := &s.RuntimeEvents[i]
@@ -80,6 +99,17 @@ func (e Engine) Scan(parent context.Context, c config.Config) (domain.Snapshot, 
 	if _, err := graph.Build(&s); err != nil {
 		return s, fmt.Errorf("GRAPH_INVALID: %w", err)
 	}
+	counts := map[string]int{}
+	for _, node := range s.Graph.Nodes {
+		counts[node.Kind]++
+	}
+	evaluations := 0
+	for _, r := range e.Rules {
+		evaluations += counts[r.Subject]
+	}
+	if evaluations > 2000000 {
+		return s, fmt.Errorf("RESOURCE_LIMIT: rule evaluations exceed 2000000; reduce rules or asset budgets")
+	}
 	correlation.Evaluate(&s, e.Rules)
 	sort.Slice(s.Diagnostics, func(i, j int) bool {
 		a, b := s.Diagnostics[i], s.Diagnostics[j]
@@ -90,6 +120,7 @@ func (e Engine) Scan(parent context.Context, c config.Config) (domain.Snapshot, 
 	return s, nil
 }
 func merge(s *domain.Snapshot, b domain.Batch) {
+	s.Assets = append(s.Assets, b.Assets...)
 	s.RuntimeEvents = append(s.RuntimeEvents, b.RuntimeEvents...)
 	s.LostRuntimeEvents += b.LostRuntimeEvents
 	s.Processes = append(s.Processes, b.Processes...)

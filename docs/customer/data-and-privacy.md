@@ -4,7 +4,7 @@
 
 ## Data collection contract
 
-LASA reads local Linux metadata through a fixed set of collectors. It does not recursively search the entire disk by default. Explicit roots expand only filesystem metadata scope, not permission to read their file contents.
+The default scan reads local Linux metadata through a fixed set of collectors. Optional `--inspect` modules expand the collection contract explicitly, as described below. It does not recursively search the entire disk by default. Explicit roots expand only filesystem metadata scope, not permission to read their file contents.
 
 | Source | Data read | Purpose and what appears in a report |
 | --- | --- | --- |
@@ -44,21 +44,42 @@ The scanner's own procfs file-descriptor links can be used to address a pinned f
 
 Traversal is bounded to two directory levels under each root, a global entry budget and a deadline. Symlinks are excluded, including ordinary distribution alternatives links. A parent symlink can also make an explicit root inaccessible; choose its canonical target deliberately instead of expecting automatic traversal. User home directories are not recursively enumerated. Add a specific authorized-key directory only when it is part of the intended scope.
 
+## Optional inspection access
+
+Enable these sources only through the corresponding `--inspect` module. Their scope is independent of `--roots`. The default scan does not query them.
+
+| Module/source | Data accessed | Retained data |
+| --- | --- | --- |
+| Local `/etc/passwd` and `/etc/group` | Account/group records, including fields that must be discarded | Selected names, numeric IDs and group relationships needed for findings; password/GECOS fields are discarded |
+| Systemd system manager | Loaded/enabled service inventory and selected effective service/timer properties | Unit identity/state, selected settings, executable/script/environment-file paths and supporting permission metadata |
+| Configuration-only `sshd -G -C` | Native SSH configuration resolution, including configured includes and the chosen connection context | Selected effective authentication/permission settings and the recorded context; LASA does not request host-key validation |
+| Native `sudo -n -ll -U` | Effective policy provider output for local identities | Selected root grants and command paths; general policy text is discarded |
+| Explicit execution/configuration paths | Metadata and ACLs along supported path resolutions, including normal symlink targets | Named discretionary writer candidates and selected component metadata; target file contents are not opened by LASA |
+| Native nftables query | JSON ruleset in the scanner network namespace | A supported-model verdict and packet context; no packet payloads or active probe |
+| Selected Docker-compatible UNIX socket | Version, container inventory and container inspect responses through GET requests | Selected privilege, namespace, mount, capability and confinement settings; container IDs are pseudonymized |
+| Native package database and ownership queries | Installed package/source versions and selected executable ownership | Inventory count, advisory-relevant versions and selected process relationships |
+| Explicit local advisory file | Vendor-derived advisory ranges and source/freshness metadata | Relevant advisory identifiers, fixed versions, severity and provenance; not the entire cache |
+| Cron/root spool files and systemd timers | Supported schedules and command configuration | Source/line identity, selected execution/search paths, user and permissions; command arguments and unrelated environment values are discarded |
+
+Native systemd properties and runtime inspect responses can include command arguments, environment values, labels or other sensitive fields in transient memory. LASA selects the fields above and does not persist raw responses, full command arguments, environment dumps or raw configuration files. This is a broader access choice than metadata-only scanning; it is not a promise that sensitive fields never enter memory.
+
+Native tools and local management daemons are trusted parts of the inspected system. Their configured includes, identity providers and ordinary audit logging follow host policy. A native sudo/NSS lookup can contact an organization identity service; a read-only management query can cause ordinary daemon/audit logging. LASA does not change enforcement settings or execute remediation. It does not request Docker mutations, remote runtime endpoints or host-key validation.
+
 ## What LASA does not collect or do
 
-- No `/proc/PID/environ`, full argv/cmdline, credential-store or private-key contents, application log files or arbitrary file contents.
+- The default scan does not read `/proc/PID/environ`, full argv/cmdline, credential-store/private-key contents, application logs or arbitrary application contents. Optional inspection access and transient native/API data are described above. LASA does not directly request `/etc/shadow`, private-key bodies or `/proc/PID/environ`.
 - No network payloads, packet capture, authentication attempts, active vulnerability probes or exploitation.
-- No Docker/containerd API requests or control socket connection for baseline analysis.
+- No runtime API requests or control-socket connection for baseline analysis. Only the explicit containers module uses its selected Docker-compatible endpoint.
 - No automatic remediation, host policy modification, privilege escalation or installation-time kernel enforcement.
-- No remote telemetry, report upload, SecureObs authentication or background outbound connectivity.
+- No remote telemetry, report upload or SecureObs authentication. Scans make no direct outbound IP advisory/API requests. `lasa advisories update` is a separate explicit HTTPS download; native identity-provider behavior follows host policy.
 
 Metadata can still be sensitive. Executable paths, process names, UNIX socket paths, interfaces, mount paths, identity numbers and service names reveal system structure. A command name can itself contain a sensitive string chosen by its owner. Omitting arguments and hashing selected identifiers is not a guarantee of anonymity. Review report handling under your own data classification policy.
 
 ## What is stored
 
-A one-shot terminal scan does not create a hidden report database. `--output` stores the selected report. JSON retains the complete snapshot: metadata entities, observations, provenance graph, findings, evaluation outcomes, coverage, diagnostics and optional runtime events/drop counts. HTML retains a readable representation of evidence, findings and errors. SARIF retains finding-level information and stable fingerprints.
+A one-shot terminal scan does not create a hidden report database. `--output` stores the selected report. JSON schema v2 retains the complete snapshot, enabled inspection modules, requested metadata roots, scope fingerprint and inspection assets: metadata entities, observations, provenance graph, findings, evaluation outcomes, coverage, diagnostics and optional runtime events/drop counts. HTML retains a readable representation of evidence, findings and errors. SARIF retains finding-level information and stable fingerprints.
 
-The daemon creates a private state directory, an exclusive lock file and timestamped JSON snapshots. Retention is by **snapshot count**, not days or byte quota. Only scanner-named regular snapshot files owned by the daemon user are retention candidates. Unrelated files and symlinks are not deleted. Temporary files from interrupted writes are not treated as reports or automatically interpreted.
+The daemon creates a private state directory, an exclusive lock file and timestamped JSON snapshots. Retention is bounded by **snapshot count** and an optional `--retention-bytes` quota for managed snapshots. It is not time-based retention or a quota on unrelated files. The daemon also checks a configured free-space reserve before persisting a report. Only scanner-named regular snapshot files owned by the daemon user are retention candidates. Unrelated files and symlinks are not deleted. Temporary files from interrupted writes are not treated as reports or automatically interpreted.
 
 ## Permissions and exposure
 

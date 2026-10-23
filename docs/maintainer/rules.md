@@ -2,7 +2,7 @@
 
 [Maintainer index](README.md)
 
-This catalog describes the actual builtin definitions. All are version 1. Unknown required evidence prevents a match. Titles describe conditional risk, never established compromise. Every rule has explicit positive, negative, unknown, missing, conflicting and not-applicable test cases.
+This catalog describes the actual builtin definitions: fifteen metadata definitions and eighteen opt-in inspection definitions (33 total). All are version 1. Unknown required evidence prevents a match. Titles describe conditional risk, never established compromise. Every rule has explicit positive, negative, unknown, missing, conflicting and not-applicable test cases.
 
 ## Predicate semantics
 
@@ -519,8 +519,539 @@ Remediation: Remove unnecessary capabilities and root execution, then apply test
 
 ## Scope and intentional omissions
 
-There are fifteen tested definitions, not fifteen promises of universal runtime detection. Confirmed external exposure has no fabricated static source. Unit configuration contents, actual PATH environments, arbitrary user/group ACL access, runtime control-socket authorization and complete mount-source provenance are not read or inferred. Their related findings remain candidates with precise qualifications.
+The original fifteen definitions describe the default metadata scope. The inspection extension below adds eighteen definitions, bringing the catalog to 33; these are not promises of universal runtime detection. Confirmed external exposure has no fabricated static source. Default metadata rules do not establish effective unit/SSH/sudo policy, actual PATH environments, arbitrary user/group ACL access, runtime control-socket authorization or complete mount-source provenance. Explicit inspections add the bounded provider/DAC/runtime/advisory evidence described below; unsupported conditions remain unknown. Their related findings remain candidates with precise qualifications.
 
 Sensitive paths with familiar names inside custom roots may be inactive examples or backups; verify deployment use. Sudo and SSH can reject insecure configuration modes. File capabilities can be cleared by modification, mounts can be nosuid/noexec, sticky directories can prevent replacement, and LSM policy can constrain effects. These facts remain prerequisites rather than invented intermediate attack steps.
 
 Kernel hardening values are contextual and do not generate a flood of low-signal posture findings. No CVE exploitation attempt or version-only exploitability rule is implemented. A future rule requires evidence support and tests, not merely a larger advertised rule count.
+
+## Opt-in inspection definitions
+
+All use `subject: asset` and an explicit `asset.kind` prerequisite. See [inspection design](inspection-design.md) for collection and trust semantics.
+
+### LASA-101 — Root service execution path permits writes by a local identity
+
+Version 1 · category `systemd` · severity **high** · confidence **high**.
+
+Effective systemd execution metadata references a path or replaceable ancestor permitted by local Unix discretionary access. LSM policy, immutable flags, execution timing and concurrent changes remain prerequisites.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "systemd_service"
+    },
+    {
+      "predicate": "systemd.writable_execution",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `systemd.writable_execution`, `asset.kind`.
+
+Remediation: Restrict the named script, executable and parent-directory write access; review the service user and apply changes through service change control.
+
+### LASA-102 — Root listener service lacks selected systemd restrictions
+
+Version 1 · category `systemd` · severity **medium** · confidence **high**.
+
+An observed listener is associated with a root systemd service with NoNewPrivileges and ProtectSystem disabled. Service requirements and other confinement controls need review.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "systemd_service"
+    },
+    {
+      "predicate": "systemd.exposed_unconfined",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `systemd.exposed_unconfined`, `asset.kind`.
+
+Remediation: Review the listener reachability, reduce service privilege and test appropriate systemd restrictions.
+
+### LASA-110 — SSH context permits root password authentication
+
+Version 1 · category `ssh` · severity **medium** · confidence **high**.
+
+Effective sshd policy permits root password authentication for the recorded connection context without a required additional authentication method. Account lock state and network reachability are not established.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "ssh_policy"
+    },
+    {
+      "predicate": "ssh.root_password",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `ssh.root_password`, `asset.kind`.
+
+Remediation: Review the recorded context; prefer individual accounts and controlled privilege delegation, and validate effective SSH policy before reload.
+
+### LASA-111 — SSH ownership and mode enforcement is disabled
+
+Version 1 · category `ssh` · severity **low** · confidence **high**.
+
+Effective sshd StrictModes is disabled for the recorded context. This is policy evidence, not proof that an unauthorized key is accepted.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "ssh_policy"
+    },
+    {
+      "predicate": "ssh.strict_modes_disabled",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `ssh.strict_modes_disabled`, `asset.kind`.
+
+Remediation: Enable StrictModes where compatible and review actual authorized-key path ownership and permissions.
+
+### LASA-120 — Local identity has unrestricted sudo root delegation
+
+Version 1 · category `sudo` · severity **medium** · confidence **high**.
+
+The native sudo policy provider reports unrestricted root commands for this local identity. Intentional administrator delegation can be documented with an expiring suppression.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "sudo_identity"
+    },
+    {
+      "all": [
+        {
+          "predicate": "sudo.unrestricted_root",
+          "op": "eq",
+          "value": true
+        },
+        {
+          "predicate": "sudo.passwordless_root",
+          "op": "eq",
+          "value": false
+        }
+      ]
+    }
+  ]
+}
+```
+
+Required evidence: `sudo.unrestricted_root`, `sudo.passwordless_root`, `asset.kind`.
+
+Remediation: Review whether unrestricted delegation is necessary and prefer narrowly scoped, administrator-controlled commands.
+
+### LASA-121 — Local identity has passwordless unrestricted sudo root delegation
+
+Version 1 · category `sudo` · severity **high** · confidence **high**.
+
+The native policy provider reports an unrestricted root grant without password authentication. This grants substantial impact if the identity is compromised.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "sudo_identity"
+    },
+    {
+      "predicate": "sudo.passwordless_root",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `sudo.passwordless_root`, `asset.kind`.
+
+Remediation: Restrict the grant and account access, or document an intentional administrator exception with ownership and expiry.
+
+### LASA-122 — Sudo root command permits writes by its delegated identity
+
+Version 1 · category `sudo` · severity **high** · confidence **high**.
+
+A root command in the effective sudo policy has a discretionary write or replacement path available to the delegated local identity. Command arguments, digest constraints and mandatory controls may limit execution.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "sudo_identity"
+    },
+    {
+      "predicate": "sudo.writable_command",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `sudo.writable_command`, `asset.kind`.
+
+Remediation: Remove writable execution paths and review sudo command/digest/argument restrictions with the native policy tools.
+
+### LASA-130 — Sensitive execution or access path permits local discretionary writes
+
+Version 1 · category `permissions` · severity **high** · confidence **high**.
+
+A selected privileged executable or sensitive configuration path has a direct write or replacement candidate for a named local identity, accounting for ACL masks, traversal, sticky directories and observed mount state. Policy acceptance and mandatory controls remain unverified.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "permission_path"
+    },
+    {
+      "predicate": "permissions.privileged_write",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `permissions.privileged_write`, `asset.kind`.
+
+Remediation: Restrict the named writer and affected components; verify policy activation, immutable flags and LSM controls before prioritizing remediation.
+
+### LASA-140 — Local nftables model permits traffic to a management endpoint
+
+Version 1 · category `firewall` · severity **medium** · confidence **high**.
+
+The supported nftables input model accepts the recorded new-connection packet for a non-loopback management endpoint. Legacy filtering, XDP/tc, NAT, upstream networks and actual application authentication are outside this verdict.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "nftables_endpoint"
+    },
+    {
+      "predicate": "firewall.management_permitted",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `firewall.management_permitted`, `asset.kind`.
+
+Remediation: Review the recorded packet context and restrict management access to intended clients; verify external reachability independently.
+
+### LASA-150 — Running container has privileged runtime configuration
+
+Version 1 · category `containers` · severity **high** · confidence **high**.
+
+The explicitly selected Docker-compatible runtime reports a running privileged container. Runtime scope and actual host namespace boundaries must be verified.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "runtime_container"
+    },
+    {
+      "predicate": "containers.privileged",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `containers.privileged`, `asset.kind`.
+
+Remediation: Remove privileged mode where possible and grant only the individual capabilities and devices required.
+
+### LASA-151 — Running container shares the runtime host PID namespace
+
+Version 1 · category `containers` · severity **high** · confidence **high**.
+
+The selected runtime reports host PID mode for a running container. This increases visibility and may increase impact depending on identity, capabilities and host policy.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "runtime_container"
+    },
+    {
+      "predicate": "containers.host_pid",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `containers.host_pid`, `asset.kind`.
+
+Remediation: Use a private PID namespace unless host PID access is required and explicitly controlled.
+
+### LASA-152 — Running container mounts a conventional runtime-control socket path
+
+Version 1 · category `containers` · severity **high** · confidence **medium**.
+
+The selected runtime reports a mount whose source has a conventional runtime-control socket filename. Verify the endpoint type and authorization. A read-only bind mount does not prevent UNIX socket API connections; actual runtime scope and access remain conditional.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "runtime_container"
+    },
+    {
+      "predicate": "containers.runtime_socket",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `containers.runtime_socket`, `asset.kind`.
+
+Remediation: Remove runtime control sockets from workloads or use a deliberately restricted API intermediary.
+
+### LASA-153 — Running container has a sensitive writable bind mount
+
+Version 1 · category `containers` · severity **high** · confidence **high**.
+
+The selected runtime reports a writable bind mount of a sensitive system directory. The endpoint defines the runtime host scope; no successful container escape is asserted.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "runtime_container"
+    },
+    {
+      "predicate": "containers.sensitive_mount",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `containers.sensitive_mount`, `asset.kind`.
+
+Remediation: Remove the mount or narrowly scope it and use read-only data access where appropriate.
+
+### LASA-154 — Running container combines dangerous added capabilities with disabled confinement
+
+Version 1 · category `containers` · severity **high** · confidence **high**.
+
+The selected runtime reports dangerous added capabilities and an explicitly unconfined seccomp or AppArmor setting. User namespaces and actual policy effectiveness still matter.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "runtime_container"
+    },
+    {
+      "predicate": "containers.unconfined_capabilities",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `containers.unconfined_capabilities`, `asset.kind`.
+
+Remediation: Reduce added capabilities and restore tested seccomp/AppArmor confinement.
+
+### LASA-160 — Installed package matches a vendor-derived advisory range
+
+Version 1 · category `packages` · severity **medium** · confidence **high**.
+
+The native package database version matches an affected range for the exact distribution release. Matching uses Debian or RPM version semantics and does not prove exploitability or binary integrity.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "installed_package"
+    },
+    {
+      "all": [
+        {
+          "predicate": "packages.vulnerable",
+          "op": "eq",
+          "value": true
+        },
+        {
+          "predicate": "packages.high_severity",
+          "op": "eq",
+          "value": false
+        },
+        {
+          "predicate": "packages.exposed_vulnerability",
+          "op": "eq",
+          "value": false
+        }
+      ]
+    }
+  ]
+}
+```
+
+Required evidence: `packages.vulnerable`, `packages.high_severity`, `packages.exposed_vulnerability`, `asset.kind`.
+
+Remediation: Apply the vendor fixed package where available, review advisory prerequisites and restart affected workloads after updating.
+
+### LASA-161 — Advisory-affected package is associated with a listening process
+
+Version 1 · category `packages` · severity **high** · confidence **high**.
+
+An affected native package owns a matching observed executable inode used by a process with a non-loopback listener. This increases review priority without proving internet reachability or exploitability.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "installed_package"
+    },
+    {
+      "predicate": "packages.exposed_vulnerability",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `packages.exposed_vulnerability`, `asset.kind`.
+
+Remediation: Review the recorded advisories, update the package, restart the service and restrict listener access.
+
+### LASA-162 — Installed package matches a high-severity vendor advisory
+
+Version 1 · category `packages` · severity **high** · confidence **high**.
+
+An installed package falls within a high or critical vendor-derived affected range for the exact distribution release. Applicable mitigations and vendor backports must be considered.
+
+```json
+{
+  "all": [
+    {
+      "predicate": "asset.kind",
+      "op": "eq",
+      "value": "installed_package"
+    },
+    {
+      "all": [
+        {
+          "predicate": "packages.high_severity",
+          "op": "eq",
+          "value": true
+        },
+        {
+          "predicate": "packages.exposed_vulnerability",
+          "op": "eq",
+          "value": false
+        }
+      ]
+    }
+  ]
+}
+```
+
+Required evidence: `packages.high_severity`, `packages.exposed_vulnerability`, `asset.kind`.
+
+Remediation: Apply vendor remediation and review whether the affected component is loaded or used.
+
+### LASA-170 — Privileged scheduled execution references a discretionary write path
+
+Version 1 · category `scheduler` · severity **high** · confidence **high**.
+
+A root cron job or active systemd timer references a script, executable, configuration or search directory writable or replaceable by a local identity. Scheduler acceptance, activation and mandatory controls remain prerequisites.
+
+```json
+{
+  "all": [
+    {
+      "any": [
+        {
+          "predicate": "asset.kind",
+          "op": "eq",
+          "value": "scheduled_job"
+        },
+        {
+          "predicate": "asset.kind",
+          "op": "eq",
+          "value": "systemd_timer"
+        }
+      ]
+    },
+    {
+      "predicate": "scheduler.writable_root_job",
+      "op": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+Required evidence: `scheduler.writable_root_job`, `asset.kind`.
+
+Remediation: Restrict execution and search paths, prefer absolute administrator-controlled paths and validate the schedule under change control.

@@ -22,7 +22,7 @@ Send SIGTERM or SIGINT for graceful shutdown. An in-progress scan receives cance
 
 ## Retention and capacity
 
-Retention limits snapshot **count**. At 96 reports and a 15-minute delay, the nominal window is about a day plus scan time, but timing, restarts and errors change it. Large reports can consume substantial storage. Set disk monitoring and an external byte/time retention policy if required; LASA does not promise a total disk quota.
+Retention limits snapshot **count**. At 96 reports and a 15-minute delay, the nominal window is about a day plus scan time, but timing, restarts and errors change it. Large reports can consume substantial storage. Set disk monitoring and an external byte/time retention policy if required; Use `--retention-bytes` to add a managed-snapshot byte quota and `--min-free-bytes` to reserve space before the next report. Neither is a quota on unrelated files or a guarantee against concurrent disk exhaustion.
 
 Only correctly named, scanner-owned regular snapshots are removed by built-in retention. Unrelated files, symlinks, locks and leftover temporary files are retained. Do not use the state directory as a general-purpose document directory. Backups and copied reports need their own access and deletion policies.
 
@@ -69,3 +69,13 @@ Do not add `--privileged`, mount the entire host root or expose runtime sockets 
 ## Operational acceptance
 
 Before a fleet rollout, verify useful unprivileged observations, expected privileged visibility if required, report file access, coverage policy, retention, graceful shutdown, alert delivery and the behavior of incomplete comparisons. Add representative Linux VM tests for your distributions, kernels, container runtimes and service manager. Preserve diagnostics in central ingestion so a missing permission cannot appear as a healthy host.
+
+## Scheduling inspections
+
+```bash
+sudo lasa daemon --profile deep --inspect systemd,ssh,sudo,permissions,scheduler   --state-dir /var/lib/lasa --interval 15m --timeout 2m   --retention 96 --retention-bytes 1073741824 --min-free-bytes 67108864
+```
+
+Review the [expanded collection contract](security-inspections.md) and the required native providers before deployment. The example metadata-only systemd units do not automatically grant all optional inspection permissions or install native tools. Package checks additionally require a current local advisory database; schedule its refresh separately and monitor failures.
+
+A collector fault is isolated and recorded as incomplete coverage. Fatal persistence/retention failures stop the daemon with a specific error so its process supervisor can alert/restart it. Reports are not silently discarded to make a scan appear successful. Validate shutdown, disk pressure, retained-byte limits and restart behavior under your own workload.

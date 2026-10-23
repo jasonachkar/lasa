@@ -19,6 +19,7 @@ import (
 	"github.com/jasonachkar/lasa/internal/config"
 	"github.com/jasonachkar/lasa/internal/diagnostics"
 	"github.com/jasonachkar/lasa/internal/domain"
+	"github.com/jasonachkar/lasa/internal/inspection"
 	linux "github.com/jasonachkar/lasa/internal/platform/linux"
 	"github.com/jasonachkar/lasa/internal/rules"
 )
@@ -70,6 +71,15 @@ func Linux(c config.Config, pack []rules.Rule) (Engine, error) {
 
 		return []collector.Collector{filesystem.Collector{Config: c, HostID: host.ID}}
 	}}
+	if len(c.Modules()) > 0 {
+		e.Stages = append(e.Stages, func(s *domain.Snapshot) []collector.Collector {
+			var out []collector.Collector
+			for _, module := range c.Modules() {
+				out = append(out, inspection.Collector{Module: module, Config: c, Snapshot: s})
+			}
+			return out
+		})
+	}
 	return e, nil
 }
 func hostInfo(proc linux.Reader, profile string) (domain.Host, []domain.Diagnostic) {

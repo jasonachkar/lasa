@@ -8,21 +8,24 @@ import (
 )
 
 type Drift struct {
-	Schema     string           `json:"schema"`
-	Previous   string           `json:"previous_scan"`
-	Current    string           `json:"current_scan"`
-	New        []domain.Finding `json:"new"`
-	Continuing []domain.Finding `json:"continuing"`
-	Resolved   []domain.Finding `json:"resolved"`
-	Changed    []domain.Finding `json:"changed"`
-	Unknown    []domain.Finding `json:"unknown"`
+	SurfaceChanges   []SurfaceChange  `json:"surface_changes,omitempty"`
+	ChangesTruncated bool             `json:"changes_truncated"`
+	Schema           string           `json:"schema"`
+	Previous         string           `json:"previous_scan"`
+	Current          string           `json:"current_scan"`
+	New              []domain.Finding `json:"new"`
+	Continuing       []domain.Finding `json:"continuing"`
+	Resolved         []domain.Finding `json:"resolved"`
+	Changed          []domain.Finding `json:"changed"`
+	Unknown          []domain.Finding `json:"unknown"`
 }
 
 func Diff(old, now domain.Snapshot) (Drift, error) {
-	d := Drift{Schema: "lasa.diff/v1", Previous: old.ScanID, Current: now.ScanID}
+	d := Drift{Schema: "lasa.diff/v2", Previous: old.ScanID, Current: now.ScanID}
 	if old.Host.ID != now.Host.ID {
 		return d, fmt.Errorf("cannot compare different host identities")
 	}
+	d.SurfaceChanges, d.ChangesTruncated = surfaceChanges(old, now)
 	before := map[string]domain.Finding{}
 	after := map[string]domain.Finding{}
 	for _, f := range old.Findings {
@@ -33,7 +36,7 @@ func Diff(old, now domain.Snapshot) (Drift, error) {
 		prev, ok := before[f.ID]
 		if !ok {
 			d.New = append(d.New, f)
-		} else if prev.ScoreVersion != f.ScoreVersion || prev.Priority != f.Priority || prev.Severity != f.Severity || prev.Confidence != f.Confidence || prev.Exposure != f.Exposure || prev.Suppressed != f.Suppressed {
+		} else if prev.ScoreVersion != f.ScoreVersion || prev.Priority != f.Priority || prev.Severity != f.Severity || prev.Confidence != f.Confidence || prev.Exposure != f.Exposure || prev.Suppressed != f.Suppressed || canonicalEvidence(prev.Evidence) != canonicalEvidence(f.Evidence) {
 			d.Changed = append(d.Changed, f)
 		} else {
 			d.Continuing = append(d.Continuing, f)
@@ -59,7 +62,7 @@ func Diff(old, now domain.Snapshot) (Drift, error) {
 				verifiedAbsent = false
 			}
 		}
-		if old.Profile != now.Profile || !now.Complete || !verifiedAbsent {
+		if old.Profile != now.Profile || old.ScopeFingerprint == "" || now.ScopeFingerprint == "" || old.ScopeFingerprint != now.ScopeFingerprint || !findingCoverageComplete(f, now) || !verifiedAbsent {
 			d.Unknown = append(d.Unknown, f)
 		} else {
 			d.Resolved = append(d.Resolved, f)
@@ -69,4 +72,20 @@ func Diff(old, now domain.Snapshot) (Drift, error) {
 		sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
 	}
 	return d, nil
+}
+
+func findingCoverageComplete(f domain.Finding, s domain.Snapshot) bool {
+	if len(f.Coverage) == 0 {
+		return s.Complete
+	}
+	current := map[string]bool{}
+	for _, c := range s.Coverage {
+		current[c.Collector] = c.Complete
+	}
+	for _, name := range f.Coverage {
+		if !current[name] {
+			return false
+		}
+	}
+	return true
 }

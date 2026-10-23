@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jasonachkar/lasa/internal/collector"
@@ -51,5 +52,27 @@ func TestMissingProcIsFatalAndActionable(t *testing.T) {
 	var d domain.Diagnostic
 	if !errors.As(e, &d) || d.Code != "PROC_UNAVAILABLE" || d.Recoverable || d.Target == "" || d.Remediation == "" {
 		t.Fatalf("bad prerequisite error: %v", e)
+	}
+}
+
+type panickingCollector struct{}
+
+func (panickingCollector) Descriptor() collector.Descriptor {
+	return collector.Descriptor{ID: "faulting-fixture", Version: "1"}
+}
+func (panickingCollector) Collect(context.Context) domain.Batch { panic("PRIVATE_CONFIGURATION_VALUE") }
+func TestCollectorPanicIsIsolated(t *testing.T) {
+	engine := Engine{Host: domain.Host{ID: "h"}, Stages: []Stage{func(*domain.Snapshot) []collector.Collector {
+		return []collector.Collector{panickingCollector{}, fake{}}
+	}}}
+	s, e := engine.Scan(context.Background(), config.Default())
+	if e != nil {
+		t.Fatal(e)
+	}
+	if s.Complete || len(s.Coverage) != 2 || len(s.Diagnostics) != 1 || s.Diagnostics[0].Code != "COLLECTOR_INTERNAL_ERROR" {
+		t.Fatalf("panic was not isolated: %+v", s)
+	}
+	if strings.Contains(s.Diagnostics[0].Cause, "PRIVATE_CONFIGURATION_VALUE") {
+		t.Fatal("panic payload leaked")
 	}
 }

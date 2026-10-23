@@ -161,3 +161,22 @@ Git reads and pushes work in this cloud environment; GitHub API requests returne
 Static scanning is useful and validated in the stated environment. It intentionally does not implement active external reachability tests, full ACL/effective-access proofs, complete systemd/PATH configuration parsing, continuous runtime streaming, every container runtime, distributed multihop attack discovery or automatic SecureObs upload. The confirmed-exposure rule definition cannot trigger from fabricated wildcard evidence. These boundaries are documented and are not disguised as completed detection.
 
 Existing MIT licensing remains unchanged. Documentation separation is editorial; the owner controls repository/document publication. SecureObs should consume `lasa.report/v1` through an authenticated asset/tenant mapping layer and preserve evidence, coverage, unknowns, scoring versions and suppression state as documented in the ingestion contract.
+
+## Security inspection extension (2026-10-23)
+
+This extension adds eight opt-in inspection modules, 18 additional rule definitions (33 total), identity/ACL-aware discretionary permission candidates, exact-release offline package advisory matching, scope-aware finding/surface drift, report v2 and bounded daemon disk retention. The legacy v1 report remains readable. The earlier v1 integration recommendation above is historical; new consumers must implement the current v2 ingestion contract. The new inspection design supersedes earlier statements that configuration/ACL inspection is entirely absent, while retaining its documented limits.
+
+Executed against this source in the restricted Linux workspace:
+
+- Go formatting, vet, all unit/integration/end-to-end tests, race detector, staticcheck and module verification passed with Go 1.27.2. All 33 rule definitions have positive, negative, missing, unknown, not-applicable and conflict fixtures. Pipeline tests exercise native-provider fixtures through findings, graph and all four export formats, including secret omission.
+- Eleven bounded fuzz targets passed, including new ACL, native package comparison, configuration and nftables parsers. Repeat builds matched for Linux AMD64 and ARM64; both release binaries cross-compiled.
+- ShellCheck passed for all shell scripts and actionlint passed with the dedicated self-hosted runner label declared. VM helpers were reviewed for child namespace guards and fixture-only resource cleanup; this is not execution of those privileged helpers.
+- Strict MkDocs builds and real isolated Mike deployments passed for 13 customer pages. Version archives, default aliases, APT files, Homebrew formula, CNAME and `.nojekyll` survived publication. Maintainer content was excluded.
+- Chromium exercised all 13 pages, dark default, all three sidebar groups, keyboard/local search, theme persistence, clipboard and widths 320–1920px without script errors or external asset requests. Footer checks across six viewport sizes and the 404 page preserved sidebar height. Axe WCAG A/AA checks found no violations on six representative pages in both themes; this is an automated check, not an accessibility certification.
+
+Not executed or blocked:
+
+- The explicit privileged DAC/native-SSH tests correctly skipped without `LASA_PRIVILEGED_TESTS=1`. This sandbox does not establish native systemd, Docker provider, kernel eBPF, namespace/hidepid or disk-full VM compatibility. The new Mac Multipass wrapper and disposable Linux harness make the supported native checks reproducible; actual VM results still need to be recorded for each target architecture/distribution/kernel/provider.
+- Native system-tool execution is refused where the sandbox presents executable ancestry as non-root-owned. That is the intended trust boundary, not a reason to weaken the production check. Native package-comparator cross-checks use the separate fixture test command.
+- A current official `govulncheck ./...` was attempted and failed because the environment proxy returned `Forbidden` for `https://vuln.go.dev/index/modules.json.gz`. No current clean vulnerability result is claimed. Refresh/check through an authorized network before release; an older cached snapshot cannot establish current status.
+- The environment cannot publish to the distribution repository or validate the live custom-domain/HTTPS deployment. Source builds and isolated publication passed; live deployment uses the owner's existing authenticated Mac publisher and preserved signing/deploy keys.

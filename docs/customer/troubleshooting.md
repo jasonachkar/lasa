@@ -1,60 +1,70 @@
-# Troubleshooting and diagnostic reference
+# Product guide
 
 [Documentation home](../../README.md)
 
-## Read the whole diagnostic
+## The problem LASA helps investigate
 
-Every structured collector diagnostic carries a code, component, operation, target, underlying cause, errno when available, evidence impact, remediation and recoverability. Some also identify a required feature or privilege. Use JSON for the complete diagnostic list; terminal summary output displays at most twelve diagnostics to avoid burying findings.
+Linux security depends on combinations of conditions. A listener, a root process and an enabled kernel feature have very different implications depending on how they relate. LASA organizes local evidence so an operator can prioritize combinations that deserve attention: for example, a potentially reachable process that also carries powerful initial-user-namespace capabilities.
 
-```sh
-lasa doctor --format json
-lasa scan --format json --output investigation.report.json
-```
+LASA is useful for host posture reviews, workload privilege reviews, pre-deployment checks, incident triage and tracking the effect of hardening changes. It is a point-in-time evidence tool, not an incident response verdict, vulnerability exploit framework, malware detector or replacement for a firewall policy review.
 
-A successful report write can contain incomplete collection. `--strict` exposes this as exit 3. Fix the specific cause and rerun; the existence of a previous report does not establish that new settings took effect.
+## What happens during a scan
 
-## Common codes
+1. LASA determines its visible Linux scope and records the time and host identity context.
+2. It collects bounded process, socket, namespace, kernel-control and explicitly scoped file metadata.
+3. It connects evidence that refers to the same visible subjects.
+4. It evaluates reviewed local rules, preserving unknown and conflicting evidence.
+5. It emits findings, supporting observations, conditional risk scenarios, coverage and diagnostics.
 
-| Code | Why it happens | What to do |
+There is no active network reconnaissance or direct outbound discovery request during a scan. Optional native providers and advisory management have the separate access contract below. Local socket information is read from the kernel; LASA does not try connecting to each service. The optional sensor observes a finite event window and is requested explicitly through the sensor profile.
+
+## Facts, deductions and scenarios
+
+A fact might establish that a process owns a TCP listener or that a file has a particular permission mode. A deduction may associate a conventional management port with that process. A scenario explains a possible consequence **if** an attacker first obtains the necessary access or control.
+
+Those are different kinds of statements. A wildcard listener is potentially reachable outside loopback, but its internet reachability is unknown. An SSH authorized-key file with permissive metadata might still be rejected by SSH. A container-looking cgroup name is a hint rather than proof of a container runtime boundary. LASA includes these qualifications in the relevant finding.
+
+## Profiles
+
+| Profile | Intended use | Privilege behavior |
 | --- | --- | --- |
-| `HOST_UNSUPPORTED` | Incompatible platform or initialization requirement | Use supported Linux and inspect the underlying cause; deep requires explicitly authorized UID 0 |
-| `PROC_UNAVAILABLE` / `PROC_RESTRICTED` | Required own-process or boot metadata is absent or denied | Mount supported procfs and authorize its required metadata visibility; reliable process identity needs boot ID |
-| `CONFIG_INVALID` | Invalid profile, budget, local rule pack or policy | Correct the named field/path; use generated command help |
-| `PERMISSION_DENIED` | Procfs, namespace, ACL or directory policy denied the operation | Check the specific target and namespace; do not grant broad capabilities as a generic fix |
-| `PROCESS_VANISHED` | A short-lived process disappeared during its snapshot | Expected under churn; rerun if the process matters; old findings remain uncertain |
-| `NETWORK_NAMESPACE_UNREADABLE` | No visible representative could expose a namespace table | Verify process visibility and namespace policy; the scanner cannot infer hidden sockets |
-| `NOT_FOUND` | A configured metadata path is absent or not visible | Confirm whether the feature/resource exists in this view; absence is not a blanket secure result |
-| `UNSAFE_PATH` | A path traverses a symlink or escapes its constrained root | Select a reviewed canonical path; no automatic arbitrary symlink traversal is provided |
-| `METADATA_ENCODING` | A path has non-UTF-8 bytes and its JSON label is lossy | Use the diagnostic's quoted byte target for exact filesystem identification |
-| `RESOURCE_LIMIT` | A configured or fixed enumeration budget was reached | Narrow scope or deliberately raise the configurable budget; inspect remaining incomplete coverage |
-| `COLLECTION_FAILED` | Metadata could not be safely read or parsed | Inspect operation, target and detailed cause, including truncation/format errors |
-| `SCAN_CANCELLED` | Deadline or signal interrupted a collection phase | Increase a too-short deadline or rerun after intentional cancellation |
-| `BTF_UNAVAILABLE` | Optional sensor cannot access usable kernel BTF | Use a BTF-enabled supported host; static scans remain available |
-| `EBPF_PERMISSION_DENIED` | Kernel policy denied feature probing, loading or attachment | Validate authorized BPF/perf privileges in the relevant user namespace and host policy |
-| `EBPF_VERIFIER_REJECTED` | The kernel verifier rejected the program | Preserve verifier output; report exact kernel/configuration to maintainers; never bypass it |
-| `TRACEPOINT_UNAVAILABLE` | A required tracepoint or its visibility is missing | Inspect tracefs exposure and supported event sources; unavailable sources are not fabricated |
-| `EBPF_LOAD_FAILED` | Object, CO-RE, memory or kernel loading failure | Read the precise cause; verify BTF, helpers, map support and memory limits |
-| `EBPF_EVENTS_LOST` | Kernel buffer pressure or retained-event budget discarded events | Treat runtime coverage as incomplete; shorten windows or reduce workload/observation pressure |
-| `REPORT_READ_FAILED` / `REPORT_INVALID` | Missing, unsafe, oversized or unsupported report input | Supply the original supported JSON report through a regular non-symlink path |
-| `FINDING_NOT_FOUND` | Fingerprint is absent from the selected report | Use the full fingerprint from that scan, not its rule ID |
-| `REPORT_INCOMPATIBLE` | Reports cannot be meaningfully compared | Verify host identity and schema/profile context |
-| `OUTPUT_WRITE_FAILED` | Destination is unsafe, missing, unwritable or full | Create a private real parent directory; check filesystem capacity and ownership |
-| `DAEMON_FAILED` | State lock, persistence, retention or scan failure | Inspect the nested cause and supervisor log; avoid competing daemons in one state directory |
+| `standard` | Safe baseline in the current visible Linux namespaces | Ordinary user; no elevation |
+| `deep` | Explicitly authorized higher-visibility host metadata inspection | Requires effective UID 0; still subject to capabilities and policy |
+| `container` | An explicitly acknowledged container view | Does not add host access |
+| `sensor` | Static snapshot plus a finite eBPF metadata event window | Requires separately authorized kernel prerequisites; failures remain visible |
 
-## Permission diagnosis
+Deep does not turn off security controls, connect to runtime sockets, read credentials or recursively crawl the whole filesystem. Root in a restricted container does not become host root merely by selecting a profile.
 
-Root is not a universal solution. Reading other users' procfs links is subject to ptrace policy, namespace ownership, procfs options and LSM policy. Container capability sets can exclude otherwise useful operations even for UID 0. Deep scans require an authorized host context; LASA does not recommend CAP_SYS_ADMIN as a universal workaround.
+## Reading the outcome
 
-For eBPF, feature support, BTF and tracepoints are independent prerequisites. CAP_BPF and CAP_PERFMON are commonly relevant on suitable kernels, but host policy and older-kernel behavior still matter. Doctor's visibility checks alone do not establish load permission or event delivery.
+Review the declared scope and collection diagnostics before interpreting findings. A scan may successfully write a useful report while some checks remain incomplete. Enable `--strict` when automation must distinguish this state through the process exit code.
 
-## Why no findings appeared
+For each finding, examine its observed evidence, prerequisites, confidence, uncertainty and recommended remediation. Verify impact and maintenance constraints before changing a production service. LASA does not execute remediation actions.
 
-A clean finding list can mean no supported rule matched the observed evidence, that the relevant condition was outside scope, or that needed facts were unknown. Check diagnostics and rule evaluations. The confirmed-exposure predicate is intentionally unknown in static scans; wildcard binding is not enough to satisfy it.
+## Where the product fits
 
-## Why an issue stayed unknown after a change
+Reports are usable on their own, in a local operations process, or by a future SecureObs ingestion service. LASA does not require a backend, a graph database or an always-running agent to perform a one-shot scan. It does not monitor activity continuously unless an operator arranges repeated sensor windows; scheduled windows can have observation gaps.
 
-A missing or inaccessible subject is not a verified fix. Complete a compatible scan that can evaluate the prior subject and establish the relevant negative condition. Resource replacement, cgroup changes, machine-ID changes and rule-version changes can affect identity and continuity.
+See [data and privacy](data-and-privacy.md), [result interpretation](results.md) and [compatibility](compatibility.md) before deploying it fleet-wide.
 
-## Collecting a support bundle
+## Effective configuration and advisory inspection
 
-Provide the scanner version, Linux distribution/kernel/architecture, profile, relevant budgets, exact diagnostic codes and a minimized redacted report excerpt. Do not send credentials, process environments, private keys or full infrastructure reports to a public issue. Reports can reveal paths, identities and service topology even without file contents. Use your organization's approved private support channel for sensitive evidence.
+Use `--inspect` to add supported systemd, SSH, sudo, discretionary permissions, nftables, Docker-compatible runtime, package-advisory and scheduler checks. Modules emit evidence and coverage into the same report and finding workflow. These modules can read selected configuration/native-provider output beyond the default metadata sources; they do not run exploit tests or apply remediation.
+
+Start with [security inspections](security-inspections.md), prepare [package advisories](package-advisories.md) if needed, and review [detection coverage](detection-coverage.md). Configuration changes and advisory data remain subject to their provider and freshness requirements. A larger enabled scope is not a guarantee that every security condition can be decided.
+
+## Inspection-specific diagnostics
+
+| Code or symptom | Why it happens | Action |
+| --- | --- | --- |
+| `NATIVE_TOOL_UNTRUSTED` | A native executable or ancestor is writable or is not root-controlled in this namespace | Review the named owner/mode and deployment namespace; use trusted system tools without weakening validation |
+| `INSPECTION_TIMEOUT` | A native provider exceeded its deadline | Check manager availability/load and deliberately adjust command/scan deadlines if appropriate |
+| `INSPECTION_UNSUPPORTED` | Syntax, provider version, namespace, packet context or advisory coverage cannot be interpreted safely | Read the named module's boundary; preserve the unknown result and inspect independently |
+| `RESOURCE_LIMIT` | Work, native output, response or evidence budget was exhausted | Narrow the selected scope or deliberately adjust documented work limits; retain incomplete coverage |
+| `COLLECTOR_INTERNAL_ERROR` | A collector encountered an internal panic | Other collectors can finish; report the component, scanner version and stack fingerprint privately to the maintainer |
+| Native query failure | Missing tool, denied policy query, inaccessible manager/runtime, or rejected configuration | Review the target and safe cause/location. Raw native output is withheld when it may disclose secrets |
+| No package vulnerability result | Advisory file is missing, stale, expired, malformed or for a different release | Refresh through the approved updater/vendor process; do not relabel stale timestamps |
+| Byte-retention failure | The newest snapshot alone exceeds the managed byte quota | Increase the quota or reduce report scope; the snapshot is retained and failure remains visible |
+| Disk-space preflight/write failure | Available space or filesystem permissions do not meet persistence requirements | Restore capacity/permissions, preserve existing reports and restart through the supervisor |
+
+The scanner does not automatically upgrade native tools, change firewall policy, reset runtime permissions or elevate to make a diagnostic disappear. See [security inspections](security-inspections.md) for the exact provider requirements.

@@ -16,7 +16,9 @@ import (
 
 var snapshotName = regexp.MustCompile(`^scan-[0-9]{8}T[0-9]{6}\.[0-9]{9}Z-[a-f0-9]{32}\.json$`)
 
-func Prune(path string, keep int) error {
+func Prune(path string, keep int) error { return PruneLimits(path, keep, 0) }
+
+func PruneLimits(path string, keep int, byteLimit uint64) error {
 	if keep < 1 {
 		return fmt.Errorf("retention must be positive")
 	}
@@ -37,6 +39,8 @@ func Prune(path string, keep int) error {
 		return fmt.Errorf("state directory entry budget exceeded")
 	}
 	var managed []string
+	sizes := map[string]uint64{}
+	var total uint64
 	for _, name := range names {
 		if !snapshotName.MatchString(name) {
 			continue
@@ -46,14 +50,23 @@ func Prune(path string, keep int) error {
 			return e
 		}
 		if st.Mode&unix.S_IFMT == unix.S_IFREG && st.Uid == uint32(os.Geteuid()) {
+			if st.Size < 0 || uint64(st.Size) > ^uint64(0)-total {
+				return fmt.Errorf("invalid or overflowing retained snapshot size")
+			}
+			sizes[name] = uint64(st.Size)
+			total += uint64(st.Size)
 			managed = append(managed, name)
 		}
 	}
 	sort.Strings(managed)
-	for len(managed) > keep {
+	if byteLimit > 0 && len(managed) > 0 && sizes[managed[len(managed)-1]] > byteLimit {
+		return fmt.Errorf("newest snapshot alone exceeds --retention-bytes; increase the quota or reduce scan scope; no snapshots were pruned")
+	}
+	for len(managed) > keep || byteLimit > 0 && total > byteLimit && len(managed) > 1 {
 		if e = unix.Unlinkat(int(h.Fd()), managed[0], 0); e != nil {
 			return e
 		}
+		total -= sizes[managed[0]]
 		managed = managed[1:]
 	}
 	return h.Sync()

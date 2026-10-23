@@ -6,7 +6,7 @@
 
 | Artifact | Version |
 | --- | --- |
-| Snapshot | `lasa.report/v1` |
+| Snapshot | `lasa.report/v2` (legacy v1 input remains readable) |
 | Rule pack | `lasa.rules/v1` |
 | Priority calculation | `lasa.priority/v1` |
 | Finding fingerprint inputs | `lasa.finding/v1` |
@@ -17,7 +17,7 @@
 | Runtime event | `lasa.runtime/v1` |
 | SARIF | `2.1.0` |
 
-The authoritative Go structs are in `internal/domain/model.go`. A complete machine-readable snapshot shape is checked into [`schemas/report-v1.schema.json`](../../schemas/report-v1.schema.json). Regenerate it from the domain with `go run tools/schema/main.go > schemas/report-v1.schema.json`. The suppression schema is also in `schemas/`. Exported field additions require a deliberate compatibility decision because the CLI decoder rejects unknown fields for the current version.
+The authoritative Go structs are in `internal/domain/model.go`. A complete machine-readable snapshot shape is checked into [`schemas/report-v2.schema.json`](../../schemas/report-v2.schema.json). Regenerate it from the domain with `go run tools/schema/main.go > schemas/report-v2.schema.json`. The suppression schema is also in `schemas/`. Exported field additions require a deliberate compatibility decision because the CLI decoder rejects unknown fields for the current version.
 
 ## Snapshot envelope
 
@@ -92,3 +92,5 @@ Suppression entries require a unique fingerprint and nonblank justification; opt
 ## SecureObs adapter responsibilities
 
 Validate schema/limits/references; authorize asset and tenant mapping independently; ingest execution IDs idempotently; preserve all uncertainty, provenance, suppression and scoring version fields. A snapshot is not signed or encrypted by LASA. The ingestion layer must establish transport integrity and storage access policy. Do not fetch URLs or execute queries derived from report fields.
+
+Report v2 adds inspected assets, enabled inspection modules, requested roots and the scope fingerprint. New output is intentionally versioned independently of the executable. Diffs emit `lasa.diff/v2`, including surface changes and truncation. See [inspection design](inspection-design.md) for compatibility and dependency-aware resolution.

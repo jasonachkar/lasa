@@ -30,7 +30,7 @@ An unknown observation does not mean false. A rule requiring unknown evidence do
 - `local`: the endpoint is loopback or UNIX-local; this is not a blanket statement about other relay/proxy paths.
 - `unknown`: reachability could not be established for the subject.
 
-IPv6 wildcard bindings do not establish that IPv4 traffic will be accepted. LASA does not infer dual-stack policy, firewall rules, upstream NAT, cloud security groups or public load balancers from a bind address.
+IPv6 wildcard bindings do not establish that IPv4 traffic will be accepted. LASA does not infer dual-stack policy or upstream reachability from a bind address. Optional firewall inspection adds a separately qualified local nftables verdict; it does not establish upstream NAT, cloud security-group or load-balancer policy.
 
 ## What a finding contains
 
@@ -52,9 +52,9 @@ Current correlations are local evidence combinations centered on a subject. They
 
 ## Comparing snapshots
 
-`lasa diff old.report.json new.report.json` requires matching host identities. It classifies findings as new, continuing, materially changed, resolved or unknown. Material changes include priority, severity, confidence, exposure and suppression status.
+`lasa diff old.report.json new.report.json` requires matching host identities. It classifies findings as new, continuing, materially changed, resolved or unknown. Material changes include priority, severity, confidence, exposure, suppression status and supporting evidence.
 
-A missing finding is only marked resolved when the newer compatible profile has complete collection and an explicit negative/not-applicable rule evaluation for the same stable subject. Disappearing or unenumerated assets remain unknown. This conservative policy can require a follow-up scan before a dashboard can claim resolution. Broader file roots or a different profile also affect comparability; record scan scope alongside reports.
+A missing finding is only marked resolved when its relevant evidence collectors have complete coverage, the recorded profile/scope is compatible, and there is an explicit negative/not-applicable rule evaluation for the same stable subject. Disappearing or unenumerated assets remain unknown. This conservative policy can require a follow-up scan before a dashboard can claim resolution. Broader file roots or a different profile also affect comparability; record scan scope alongside reports.
 
 Fingerprint stability favors service identity, executable and stable cgroup context rather than PID alone. A resource rename, host identity change, container replacement or rule version change can legitimately yield a new fingerprint. A missing machine ID forces a boot-scoped fallback and is diagnosed; it weakens continuity across reboots.
 
@@ -80,3 +80,11 @@ Apply with `--suppressions exceptions.json`. A unique fingerprint and nonempty j
 ## Report formats
 
 JSON is the complete versioned interchange form. Terminal output is a readable summary and displays a bounded diagnostic preview; JSON retains every diagnostic. HTML is a static self-contained report containing observations and actionable errors. SARIF 2.1.0 uses genuine logical resource locations for runtime findings rather than fabricated source-code filenames. Some GitHub code scanning views require repository physical locations and may omit or poorly display host findings; retain the JSON/HTML report as the operational record.
+
+## Report and diff versions
+
+New scans emit `lasa.report/v2`. The extension records inspection assets, enabled modules, requested metadata roots and a scope fingerprint; default scans still keep the baseline collection scope. The saved-report renderer accepts legacy `lasa.report/v1` without inventing inspection data. Older scanner builds and external consumers must be upgraded before consuming v2. Inspection extensions cannot be mislabeled as v1.
+
+`lasa diff` emits `lasa.diff/v2`, including bounded `surface_changes` and an explicit `changes_truncated` flag. See [detection coverage](detection-coverage.md) for inventory-change and resolution semantics. Public schemas are available for [v2](../../schemas/report-v2.schema.json) and the [legacy v1 contract](../../schemas/report-v1.schema.json).
+
+Legacy reports without a scope fingerprint cannot establish compatible collection scope for automatic resolution; absent findings remain unknown until comparable v2 baselines are available.

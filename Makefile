@@ -49,6 +49,10 @@ fuzz:
 	$(GO) test ./internal/collector/identity -run '^$$' -fuzz '^FuzzMountInfo$$' -fuzztime=3s -parallel=2
 	$(GO) test ./internal/rules -run '^$$' -fuzz '^FuzzLoad$$' -fuzztime=3s -parallel=2
 	$(GO) test ./internal/report -run '^$$' -fuzz '^FuzzDecode$$' -fuzztime=3s -parallel=2
+	$(GO) test ./internal/access -run '^$$' -fuzz '^FuzzACL$$' -fuzztime=3s -parallel=2
+	$(GO) test ./internal/advisory -run '^$$' -fuzz '^FuzzVersionComparators$$' -fuzztime=3s -parallel=2
+	$(GO) test ./internal/inspection -run '^$$' -fuzz '^FuzzConfigurationParsers$$' -fuzztime=3s -parallel=2
+	$(GO) test ./internal/inspection -run '^$$' -fuzz '^FuzzFirewall$$' -fuzztime=3s -parallel=2
 notices:
 	sh scripts/package-notices.sh
 sbom: release-binaries notices

@@ -57,12 +57,15 @@ nav:
       - Product guide: product-guide.md
       - Install LASA: installation.md
   - Use LASA:
+      - Security inspections: security-inspections.md
+      - Package advisories: package-advisories.md
       - CLI reference: cli-reference.md
       - Understand results: results.md
       - Operate and deploy: operations.md
       - Troubleshoot: troubleshooting.md
   - Trust and scope:
       - Collection, access and privacy: data-and-privacy.md
+      - Detection coverage: detection-coverage.md
       - Compatibility and limits: compatibility.md
       - SecureObs and local exports: secureobs.md
 validation:

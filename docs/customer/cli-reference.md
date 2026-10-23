@@ -31,6 +31,15 @@ lasa scan --format sarif --output host.sarif --fail-on high
 | `--max-files` | `4096` | File metadata budget, maximum 100,000 |
 | `--roots` | See privacy guide | Comma-separated explicit metadata roots, replaces defaults |
 | `--sensor-duration` | `3s` | Optional event window, 1ms–10m, only used by sensor profile |
+| `--inspect` | none | Opt-in modules or `all`; see security inspections |
+| `--ssh-context` | root/localhost context | Repeatable effective SSH context |
+| `--network-source` / `--network-destination` | none | IP literals for local nftables modeling |
+| `--network-interface` | none | Ingress interface for modeled packet |
+| `--container-socket` | `/run/docker.sock` | Explicit Docker-compatible UNIX endpoint |
+| `--advisories` | none | Local release-specific advisory database |
+| `--advisory-max-age` | `168h` | Additional cache age limit; own expiry always applies |
+| `--max-inspection-items` | `256` | Per-module work budget, 1–4096 |
+| `--inspection-command-timeout` | `5s` | Each native-provider deadline, 1ms–1m |
 | `--format` | `terminal` | `terminal`, `json`, `html`, `sarif` |
 | `--output` | stdout | Atomic private destination; existing regular files are replaced |
 | `--rules` | none | Explicit additional local YAML rule pack; builtin IDs cannot be overridden |
@@ -117,3 +126,16 @@ lasa daemon --state-dir ./private-state --interval 15m --retention 96
 ```
 
 The daemon runs scans sequentially, persists one JSON report at a time and logs snapshot status to stderr. It does not overlap scans or make remote API calls. Stop with SIGINT or SIGTERM; allow the in-progress scan and bounded filesystem operations time to finish. Persistence, retention or fatal scan failures terminate the daemon with a diagnostic so a supervisor can alert and restart it.
+
+## `lasa advisories`
+
+```bash
+lasa advisories update --release trixie --output advisories.json
+lasa advisories import --input authenticated-vendor.json --output advisories.json
+```
+
+Update is an explicit verified-HTTPS download from the official Debian tracker. Import validates a local `lasa.advisories/v1` file; it does not authenticate arbitrary claimed provenance. Both write private atomic files and leave the prior output intact on validation/download failure. See [package advisories](package-advisories.md).
+
+## Additional daemon limits
+
+`--retention-bytes` defaults to `0` (disabled) and limits managed snapshot bytes in addition to the count limit. `--min-free-bytes` defaults to 16,777,216 (16MiB) and reserves free space after the next report. The free-space check is advisory; a concurrent writer can still cause an atomic-write failure. A newest snapshot larger than its quota produces an error rather than silently deleting every report. Inspection flags have the same meaning in `scan` and `daemon`.

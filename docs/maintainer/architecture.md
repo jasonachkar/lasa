@@ -48,17 +48,17 @@ Snapshots are time-bounded observations of a changing host, not atomic whole-sys
 
 ## Graph and attack scenarios
 
-The graph uses indexed nodes and outgoing edges. Nodes include host, process, service, identity, socket, namespace, mount, file, container hint and security control, plus capability/executable resource nodes. Relationships are added only when their provenance exists.
+The graph uses indexed nodes and outgoing edges. Nodes include host, process, service, identity, socket, namespace, mount, file, container hint and security control, plus capability/executable and opt-in inspection asset nodes. Relationships are added only when their provenance exists.
 
 The current graph emits `RUNS_AS`, `LISTENS_ON`, `HOLDS_SOCKET`, `IN_NAMESPACE`, `BELONGS_TO_CONTAINER`, `MOUNTS`, `EXECUTES`, `HAS_CAPABILITY`, `PROTECTED_BY` and `SHARES_NAMESPACE_WITH` where the relevant evidence exists. Namespace sharing uses one deterministic representative per namespace to bound edge growth rather than materializing every pair. `PROTECTED_BY` records configured seccomp/NoNewPrivs context; it does not claim the protection is effective or reduce risk automatically.
 
 Traversal is depth/budget bounded, stably ordered and cycle protected. Rule evaluation uses registered facts rather than an arbitrary graph query language. A finding's path is a depth-three, 64-relationship supporting local evidence subgraph plus explicit conditional compromise/impact text. It is not an invented linear exploit route through every neighbor. Current correlations do not implement distributed lateral movement search or a multi-host enterprise attack graph.
 
-`CAN_WRITE` is intentionally not emitted: the current collectors cannot prove effective access for arbitrary identities across ACLs, supplementary groups, namespace mappings, sticky directories and mount policy. Permission metadata produces candidate risk, and the report says so. File `EXECUTES` association requires matching pinned device/inode evidence; path text alone does not prove which current file is running.
+`CAN_WRITE` is intentionally not emitted as a universal host guarantee. Optional inspections evaluate local discretionary access across identity/group data, ACLs, search/sticky rules and observed mounts; mandatory policy, arbitrary external identities and concurrent changes remain qualifications. Permission metadata produces candidate risk, and the report says so. File `EXECUTES` association requires matching pinned device/inode evidence; path text alone does not prove which current file is running.
 
 ## Privacy and trust
 
-The host, procfs strings, rule files and saved reports are untrusted. The scanner only reads fixed metadata sources and configured metadata roots. It does not read argv/environ, executable bytes, keys, configuration contents, payloads or arbitrary descriptors. Raw machine ID is hashed before reporting. Other names and paths remain sensitive metadata, as documented in the customer privacy guide.
+The host, procfs strings, rule files and saved reports are untrusted. The default scan reads fixed metadata sources and configured metadata roots without argv/environ, executable bytes, keys, configuration contents, payloads or arbitrary descriptors. Explicit inspection modules expand native/configuration access as specified in [inspection design](inspection-design.md); selected native/API responses can contain arguments or environment values transiently, which are discarded before persistence. Raw machine ID is hashed before reporting. Other names and paths remain sensitive metadata, as documented in the customer privacy guide.
 
 The kernel is the source of truth for Linux metadata; a compromised kernel or root actor can falsify or hide it. A report is not cryptographically signed at scan time. SecureObs ingestion must authenticate transport and asset mapping independently. The scanner never follows network or filesystem instructions embedded in report strings.
 

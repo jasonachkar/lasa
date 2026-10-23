@@ -535,6 +535,645 @@
           }
         ]
       }
+    },
+    {
+      "id": "LASA-101",
+      "version": "1",
+      "category": "systemd",
+      "subject": "asset",
+      "title": "Root service execution path permits writes by a local identity",
+      "description": "Effective systemd execution metadata references a path or replaceable ancestor permitted by local Unix discretionary access. LSM policy, immutable flags, execution timing and concurrent changes remain prerequisites.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "systemd.writable_execution",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Restrict the named script, executable and parent-directory write access; review the service user and apply changes through service change control.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "systemd_service"
+          },
+          {
+            "predicate": "systemd.writable_execution",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-102",
+      "version": "1",
+      "category": "systemd",
+      "subject": "asset",
+      "title": "Root listener service lacks selected systemd restrictions",
+      "description": "An observed listener is associated with a root systemd service with NoNewPrivileges and ProtectSystem disabled. Service requirements and other confinement controls need review.",
+      "severity": "medium",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "systemd.exposed_unconfined",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Review the listener reachability, reduce service privilege and test appropriate systemd restrictions.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "systemd_service"
+          },
+          {
+            "predicate": "systemd.exposed_unconfined",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-110",
+      "version": "1",
+      "category": "ssh",
+      "subject": "asset",
+      "title": "SSH context permits root password authentication",
+      "description": "Effective sshd policy permits root password authentication for the recorded connection context without a required additional authentication method. Account lock state and network reachability are not established.",
+      "severity": "medium",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "ssh.root_password",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Review the recorded context; prefer individual accounts and controlled privilege delegation, and validate effective SSH policy before reload.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "ssh_policy"
+          },
+          {
+            "predicate": "ssh.root_password",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-111",
+      "version": "1",
+      "category": "ssh",
+      "subject": "asset",
+      "title": "SSH ownership and mode enforcement is disabled",
+      "description": "Effective sshd StrictModes is disabled for the recorded context. This is policy evidence, not proof that an unauthorized key is accepted.",
+      "severity": "low",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "ssh.strict_modes_disabled",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Enable StrictModes where compatible and review actual authorized-key path ownership and permissions.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "ssh_policy"
+          },
+          {
+            "predicate": "ssh.strict_modes_disabled",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-120",
+      "version": "1",
+      "category": "sudo",
+      "subject": "asset",
+      "title": "Local identity has unrestricted sudo root delegation",
+      "description": "The native sudo policy provider reports unrestricted root commands for this local identity. Intentional administrator delegation can be documented with an expiring suppression.",
+      "severity": "medium",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "sudo.unrestricted_root",
+        "sudo.passwordless_root",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Review whether unrestricted delegation is necessary and prefer narrowly scoped, administrator-controlled commands.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "sudo_identity"
+          },
+          {
+            "all": [
+              {
+                "predicate": "sudo.unrestricted_root",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "predicate": "sudo.passwordless_root",
+                "op": "eq",
+                "value": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-121",
+      "version": "1",
+      "category": "sudo",
+      "subject": "asset",
+      "title": "Local identity has passwordless unrestricted sudo root delegation",
+      "description": "The native policy provider reports an unrestricted root grant without password authentication. This grants substantial impact if the identity is compromised.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "sudo.passwordless_root",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Restrict the grant and account access, or document an intentional administrator exception with ownership and expiry.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "sudo_identity"
+          },
+          {
+            "predicate": "sudo.passwordless_root",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-122",
+      "version": "1",
+      "category": "sudo",
+      "subject": "asset",
+      "title": "Sudo root command permits writes by its delegated identity",
+      "description": "A root command in the effective sudo policy has a discretionary write or replacement path available to the delegated local identity. Command arguments, digest constraints and mandatory controls may limit execution.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "sudo.writable_command",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Remove writable execution paths and review sudo command/digest/argument restrictions with the native policy tools.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "sudo_identity"
+          },
+          {
+            "predicate": "sudo.writable_command",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-130",
+      "version": "1",
+      "category": "permissions",
+      "subject": "asset",
+      "title": "Sensitive execution or access path permits local discretionary writes",
+      "description": "A selected privileged executable or sensitive configuration path has a direct write or replacement candidate for a named local identity, accounting for ACL masks, traversal, sticky directories and observed mount state. Policy acceptance and mandatory controls remain unverified.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "permissions.privileged_write",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Restrict the named writer and affected components; verify policy activation, immutable flags and LSM controls before prioritizing remediation.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "permission_path"
+          },
+          {
+            "predicate": "permissions.privileged_write",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-140",
+      "version": "1",
+      "category": "firewall",
+      "subject": "asset",
+      "title": "Local nftables model permits traffic to a management endpoint",
+      "description": "The supported nftables input model accepts the recorded new-connection packet for a non-loopback management endpoint. Legacy filtering, XDP/tc, NAT, upstream networks and actual application authentication are outside this verdict.",
+      "severity": "medium",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "firewall.management_permitted",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Review the recorded packet context and restrict management access to intended clients; verify external reachability independently.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "nftables_endpoint"
+          },
+          {
+            "predicate": "firewall.management_permitted",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-150",
+      "version": "1",
+      "category": "containers",
+      "subject": "asset",
+      "title": "Running container has privileged runtime configuration",
+      "description": "The explicitly selected Docker-compatible runtime reports a running privileged container. Runtime scope and actual host namespace boundaries must be verified.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "containers.privileged",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Remove privileged mode where possible and grant only the individual capabilities and devices required.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "runtime_container"
+          },
+          {
+            "predicate": "containers.privileged",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-151",
+      "version": "1",
+      "category": "containers",
+      "subject": "asset",
+      "title": "Running container shares the runtime host PID namespace",
+      "description": "The selected runtime reports host PID mode for a running container. This increases visibility and may increase impact depending on identity, capabilities and host policy.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "containers.host_pid",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Use a private PID namespace unless host PID access is required and explicitly controlled.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "runtime_container"
+          },
+          {
+            "predicate": "containers.host_pid",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-152",
+      "version": "1",
+      "category": "containers",
+      "subject": "asset",
+      "title": "Running container mounts a conventional runtime-control socket path",
+      "description": "The selected runtime reports a mount whose source has a conventional runtime-control socket filename. Verify the endpoint type and authorization. A read-only bind mount does not prevent UNIX socket API connections; actual runtime scope and access remain conditional.",
+      "severity": "high",
+      "confidence": "medium",
+      "unknown": "skip",
+      "required_evidence": [
+        "containers.runtime_socket",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Remove runtime control sockets from workloads or use a deliberately restricted API intermediary.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "runtime_container"
+          },
+          {
+            "predicate": "containers.runtime_socket",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-153",
+      "version": "1",
+      "category": "containers",
+      "subject": "asset",
+      "title": "Running container has a sensitive writable bind mount",
+      "description": "The selected runtime reports a writable bind mount of a sensitive system directory. The endpoint defines the runtime host scope; no successful container escape is asserted.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "containers.sensitive_mount",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Remove the mount or narrowly scope it and use read-only data access where appropriate.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "runtime_container"
+          },
+          {
+            "predicate": "containers.sensitive_mount",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-154",
+      "version": "1",
+      "category": "containers",
+      "subject": "asset",
+      "title": "Running container combines dangerous added capabilities with disabled confinement",
+      "description": "The selected runtime reports dangerous added capabilities and an explicitly unconfined seccomp or AppArmor setting. User namespaces and actual policy effectiveness still matter.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "containers.unconfined_capabilities",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Reduce added capabilities and restore tested seccomp/AppArmor confinement.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "runtime_container"
+          },
+          {
+            "predicate": "containers.unconfined_capabilities",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-160",
+      "version": "1",
+      "category": "packages",
+      "subject": "asset",
+      "title": "Installed package matches a vendor-derived advisory range",
+      "description": "The native package database version matches an affected range for the exact distribution release. Matching uses Debian or RPM version semantics and does not prove exploitability or binary integrity.",
+      "severity": "medium",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "packages.vulnerable",
+        "packages.high_severity",
+        "packages.exposed_vulnerability",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Apply the vendor fixed package where available, review advisory prerequisites and restart affected workloads after updating.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "installed_package"
+          },
+          {
+            "all": [
+              {
+                "predicate": "packages.vulnerable",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "predicate": "packages.high_severity",
+                "op": "eq",
+                "value": false
+              },
+              {
+                "predicate": "packages.exposed_vulnerability",
+                "op": "eq",
+                "value": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-161",
+      "version": "1",
+      "category": "packages",
+      "subject": "asset",
+      "title": "Advisory-affected package is associated with a listening process",
+      "description": "An affected native package owns a matching observed executable inode used by a process with a non-loopback listener. This increases review priority without proving internet reachability or exploitability.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "packages.exposed_vulnerability",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Review the recorded advisories, update the package, restart the service and restrict listener access.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "installed_package"
+          },
+          {
+            "predicate": "packages.exposed_vulnerability",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-162",
+      "version": "1",
+      "category": "packages",
+      "subject": "asset",
+      "title": "Installed package matches a high-severity vendor advisory",
+      "description": "An installed package falls within a high or critical vendor-derived affected range for the exact distribution release. Applicable mitigations and vendor backports must be considered.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "packages.high_severity",
+        "packages.exposed_vulnerability",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Apply vendor remediation and review whether the affected component is loaded or used.",
+      "when": {
+        "all": [
+          {
+            "predicate": "asset.kind",
+            "op": "eq",
+            "value": "installed_package"
+          },
+          {
+            "all": [
+              {
+                "predicate": "packages.high_severity",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "predicate": "packages.exposed_vulnerability",
+                "op": "eq",
+                "value": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "LASA-170",
+      "version": "1",
+      "category": "scheduler",
+      "subject": "asset",
+      "title": "Privileged scheduled execution references a discretionary write path",
+      "description": "A root cron job or active systemd timer references a script, executable, configuration or search directory writable or replaceable by a local identity. Scheduler acceptance, activation and mandatory controls remain prerequisites.",
+      "severity": "high",
+      "confidence": "high",
+      "unknown": "skip",
+      "required_evidence": [
+        "scheduler.writable_root_job",
+        "asset.kind"
+      ],
+      "prerequisites": [
+        "The recorded system scope, identity, activation and advisory prerequisites must apply; successful exploitation is not tested."
+      ],
+      "remediation": "Restrict execution and search paths, prefer absolute administrator-controlled paths and validate the schedule under change control.",
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "predicate": "asset.kind",
+                "op": "eq",
+                "value": "scheduled_job"
+              },
+              {
+                "predicate": "asset.kind",
+                "op": "eq",
+                "value": "systemd_timer"
+              }
+            ]
+          },
+          {
+            "predicate": "scheduler.writable_root_job",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
     }
   ]
 }

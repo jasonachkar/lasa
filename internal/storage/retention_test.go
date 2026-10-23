@@ -50,3 +50,29 @@ func TestUnsafeSharedParent(t *testing.T) {
 		t.Fatal("non-sticky shared output directory accepted")
 	}
 }
+
+func TestRetentionByteQuotaAndOversizedNewest(t *testing.T) {
+	dir := t.TempDir()
+	for n := 1; n <= 3; n++ {
+		name := fmt.Sprintf("scan-20261018T00000%d.000000000Z-%032x.json", n, n)
+		if e := Atomic(filepath.Join(dir, name), []byte("1234567890")); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e := Atomic(filepath.Join(dir, "unrelated.json"), []byte("not in quota")); e != nil {
+		t.Fatal(e)
+	}
+	if e := PruneLimits(dir, 10, 20); e != nil {
+		t.Fatal(e)
+	}
+	names, e := os.ReadDir(dir)
+	if e != nil || len(names) != 3 {
+		t.Fatal("byte retention did not keep two managed snapshots and unrelated data", names, e)
+	}
+	if e := PruneLimits(dir, 10, 5); e == nil {
+		t.Fatal("impossible newest-snapshot quota silently accepted")
+	}
+	if e := CheckSpace(dir, ^uint64(0)); e == nil {
+		t.Fatal("impossible free-space requirement accepted")
+	}
+}

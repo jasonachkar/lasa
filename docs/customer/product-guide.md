@@ -16,7 +16,7 @@ LASA is useful for host posture reviews, workload privilege reviews, pre-deploym
 4. It evaluates reviewed local rules, preserving unknown and conflicting evidence.
 5. It emits findings, supporting observations, conditional risk scenarios, coverage and diagnostics.
 
-There is no network reconnaissance or outbound discovery request. Local socket information is read from the kernel; LASA does not try connecting to each service. The optional sensor observes a finite event window and is requested explicitly through the sensor profile.
+There is no active network reconnaissance or direct outbound discovery request during a scan. Optional native providers and advisory management have the separate access contract below. Local socket information is read from the kernel; LASA does not try connecting to each service. The optional sensor observes a finite event window and is requested explicitly through the sensor profile.
 
 ## Facts, deductions and scenarios
 
@@ -46,3 +46,9 @@ For each finding, examine its observed evidence, prerequisites, confidence, unce
 Reports are usable on their own, in a local operations process, or by a future SecureObs ingestion service. LASA does not require a backend, a graph database or an always-running agent to perform a one-shot scan. It does not monitor activity continuously unless an operator arranges repeated sensor windows; scheduled windows can have observation gaps.
 
 See [data and privacy](data-and-privacy.md), [result interpretation](results.md) and [compatibility](compatibility.md) before deploying it fleet-wide.
+
+## Effective configuration and advisory inspection
+
+Use `--inspect` to add supported systemd, SSH, sudo, discretionary permissions, nftables, Docker-compatible runtime, package-advisory and scheduler checks. Modules emit evidence and coverage into the same report and finding workflow. These modules can read selected configuration/native-provider output beyond the default metadata sources; they do not run exploit tests or apply remediation.
+
+Start with [security inspections](security-inspections.md), prepare [package advisories](package-advisories.md) if needed, and review [detection coverage](detection-coverage.md). Configuration changes and advisory data remain subject to their provider and freshness requirements. A larger enabled scope is not a guarantee that every security condition can be decided.

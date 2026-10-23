@@ -44,7 +44,7 @@ type Pack struct {
 	Rules  []Rule `yaml:"rules" json:"rules"`
 }
 
-var registry = map[string]string{"network.potential": "bool", "network.confirmed": "bool", "network.management": "bool", "privilege.host_root": "bool", "capability.dangerous": "bool", "isolation.weak": "bool", "container.hint": "bool", "container.host_pid": "bool", "container.sensitive_mount": "bool", "file.executable": "bool", "file.sgid": "bool", "file.owner_root": "bool", "file.suid": "bool", "file.capability": "bool", "file.write_candidate": "bool", "file.unsafe_parent": "bool", "file.privileged_execution": "bool", "file.acl_present": "bool", "file.readonly": "bool", "file.search_path": "bool", "file.kind": "string", "identity.euid": "number"}
+var registry = map[string]string{"asset.kind": "string", "systemd.writable_execution": "bool", "systemd.exposed_unconfined": "bool", "ssh.root_password": "bool", "ssh.strict_modes_disabled": "bool", "sudo.unrestricted_root": "bool", "sudo.passwordless_root": "bool", "sudo.writable_command": "bool", "permissions.privileged_write": "bool", "firewall.management_permitted": "bool", "containers.privileged": "bool", "containers.host_pid": "bool", "containers.runtime_socket": "bool", "containers.sensitive_mount": "bool", "containers.unconfined_capabilities": "bool", "packages.vulnerable": "bool", "packages.exposed_vulnerability": "bool", "packages.high_severity": "bool", "scheduler.writable_root_job": "bool", "network.potential": "bool", "network.confirmed": "bool", "network.management": "bool", "privilege.host_root": "bool", "capability.dangerous": "bool", "isolation.weak": "bool", "container.hint": "bool", "container.host_pid": "bool", "container.sensitive_mount": "bool", "file.executable": "bool", "file.sgid": "bool", "file.owner_root": "bool", "file.suid": "bool", "file.capability": "bool", "file.write_candidate": "bool", "file.unsafe_parent": "bool", "file.privileged_execution": "bool", "file.acl_present": "bool", "file.readonly": "bool", "file.search_path": "bool", "file.kind": "string", "identity.euid": "number"}
 
 func Load(r io.Reader) ([]Rule, error) {
 	raw, e := io.ReadAll(io.LimitReader(r, (1<<20)+1))
@@ -118,8 +118,8 @@ func (r Rule) Validate() error {
 	if r.ID == "" || len(r.ID) > 128 || r.Version != "1" || r.Category == "" || r.Title == "" || r.Description == "" || r.Remediation == "" || len(r.Prerequisites) == 0 || len(r.RequiredEvidence) == 0 {
 		return fmt.Errorf("required metadata missing or unsupported rule version (require 1)")
 	}
-	if r.Subject != "process" && r.Subject != "file" {
-		return fmt.Errorf("subject must be process or file")
+	if r.Subject != "process" && r.Subject != "file" && r.Subject != "asset" {
+		return fmt.Errorf("subject must be process, file or asset")
 	}
 	if SeverityRank(r.Severity) < 0 {
 		return fmt.Errorf("invalid severity %q", r.Severity)

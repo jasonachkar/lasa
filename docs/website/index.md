@@ -66,6 +66,14 @@ Your field guide to exposed services, permissions and runtime evidence. Start wi
 
 </div>
 
+## Inspect the configurations that matter
+
+Connect effective service settings, local identities, execution paths and optional vendor advisory data to findings. Choose [security inspection modules](security-inspections.md), review their [data access](data-and-privacy.md), and understand [detection coverage](detection-coverage.md) before enabling them.
+
+```bash
+lasa scan --inspect systemd,ssh,permissions
+```
+
 ## Your first scan
 
 After [installing LASA](installation.md), check your system and collect a snapshot:
@@ -84,7 +92,7 @@ lasa report --input first.report.json --format html --output first.report.html
 
 ## Know what your results prove
 
-LASA reads local Linux metadata and evaluates it with local security rules. It does not exploit the host, modify security configuration, capture network payloads or upload reports. Your reports stay on your system, with no telemetry or cloud account required.
+LASA reads local Linux metadata and evaluates it with local security rules. Optional inspections add the explicitly selected configuration providers. It does not exploit the host, modify security configuration, capture network payloads or upload reports. Your reports stay on your system, with no telemetry or cloud account required.
 
 An empty findings list does not establish that a system is secure. Check the scan scope and collection diagnostics before drawing conclusions. See [compatibility and limits](compatibility.md) and [collection, access and privacy](data-and-privacy.md) for the boundaries of a scan.
 

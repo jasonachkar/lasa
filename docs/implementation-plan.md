@@ -27,3 +27,7 @@ Use supported Go 1.27.2 with module checksum verification. Run tests before impl
 ## Resource budgets
 
 Default deadline 30 seconds; bounded process workers, PID count, file reads, file descriptors, directory entries, graph edges, report input and rule sizes. Profiles make visibility explicit; deep requires effective UID zero and never runs sudo. Sensor is opt-in; unsupported hooks stay disabled with diagnostics. No outbound requests in the scanner. Build tooling may download pinned dependencies and release tools over authenticated TLS.
+
+## Configuration inspection expansion
+
+The original metadata-only boundary remains the default. Explicit `--inspect` authorization now adds the providers and selected configuration access described in [inspection design](maintainer/inspection-design.md) and the [customer collection contract](customer/data-and-privacy.md). Native/API responses can include arguments/environment values transiently, which are discarded. This is a deliberate opt-in contract extension, not a reinterpretation of the baseline rules above.

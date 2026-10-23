@@ -10,7 +10,8 @@ import (
 	"time"
 )
 
-const SchemaVersion = "lasa.report/v1"
+const SchemaVersion = "lasa.report/v2"
+const LegacySchemaVersion = "lasa.report/v1"
 
 // Version is injected by release builds. The default identifies source builds.
 var Version = "0.1.0-dev"
@@ -176,6 +177,16 @@ type Container struct {
 	Hint       string `json:"hint"`
 	Confidence string `json:"confidence"`
 }
+
+// Asset is an explicitly inspected configuration, identity, endpoint or package.
+// Details are retained as allowlisted observations, never raw configuration.
+type Asset struct {
+	ID       string `json:"id"`
+	StableID string `json:"stable_id"`
+	Kind     string `json:"kind"`
+	Label    string `json:"label"`
+}
+
 type KernelControl struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -265,6 +276,10 @@ type RuntimeEvent struct {
 	StaticSubject   string `json:"static_subject,omitempty"`
 }
 type Snapshot struct {
+	RequestedRoots    []string        `json:"requested_roots,omitempty"`
+	Assets            []Asset         `json:"assets,omitempty"`
+	Inspections       []string        `json:"inspections,omitempty"`
+	ScopeFingerprint  string          `json:"scope_fingerprint,omitempty"`
 	Schema            string          `json:"schema"`
 	ScannerVersion    string          `json:"scanner_version"`
 	ScanID            string          `json:"scan_id"`
@@ -291,6 +306,7 @@ type Snapshot struct {
 	Complete          bool            `json:"complete"`
 }
 type Batch struct {
+	Assets            []Asset
 	RuntimeEvents     []RuntimeEvent
 	LostRuntimeEvents uint64
 	Processes         []Process
@@ -319,6 +335,9 @@ func Fact(subject, key, value, source, collector string, state State, at time.Ti
 	return Observation{ID: Hash(subject, key, value, source, string(state)), Subject: subject, Key: key, Value: value, Source: source, Collector: collector, State: state, At: at}
 }
 func (s *Snapshot) Sort() {
+	sort.Slice(s.Assets, func(i, j int) bool { return s.Assets[i].ID < s.Assets[j].ID })
+	sort.Strings(s.Inspections)
+	sort.Strings(s.RequestedRoots)
 	sort.Slice(s.Interfaces, func(i, j int) bool { return s.Interfaces[i].ID < s.Interfaces[j].ID })
 	sort.Slice(s.Mounts, func(i, j int) bool { return s.Mounts[i].ID < s.Mounts[j].ID })
 	sort.Slice(s.Services, func(i, j int) bool {

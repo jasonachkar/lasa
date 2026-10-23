@@ -60,7 +60,7 @@ Traversal is breadth-first, deduplicated by path, limited to two levels and a bo
 
 ## Kernel, service and container context
 
-The kernel collector reads only an allowlist. Unavailable controls are unknown, not a secure default. AppArmor being enabled is not proof a particular process is confined; no generic risk discount is applied. Cgroup strings can suggest a runtime or a `.service`, but no control API is contacted and no systemd unit contents are parsed. Host-style mount paths remain hints about sensitive resources rather than proof of source host ownership.
+The kernel collector reads only an allowlist. Unavailable controls are unknown, not a secure default. AppArmor being enabled is not proof a particular process is confined; no generic risk discount is applied. In the default scan, cgroup strings suggest a runtime or a `.service`; no control API is contacted. Explicit inspection modules add effective native manager/runtime queries with separate access and validation contracts. Host-style mount paths remain hints about sensitive resources rather than proof of source host ownership.
 
 ## Resource budgets
 
@@ -75,3 +75,7 @@ Diagnostics preserve component/operation/target/cause/errno/impact/remediation a
 Storage uses directory-relative exclusive creation, mode 0600, file sync, atomic rename and parent sync. It rejects symlink traversal, non-regular report targets and unsafe shared output directories. Sticky temporary directories are supported. Existing regular reports may be atomically replaced. JSON input is bounded, strict about unknown fields and validated for version and evidence integrity.
 
 The daemon's private directory, `flock`, sequential scan loop, fatal persistence errors and managed-file-only retention prevent overlapping writes and silent data loss. Leftover temp files are ignored rather than guessed to be complete. The unit does not automatically upload reports or modify host security settings.
+
+## Configuration inspection extension
+
+The final optional stage, trusted native runner, discretionary access engine, provider adapters, advisory matching, report v2 and dependency-aware diff are specified in [inspection design](inspection-design.md). [Native VM validation](validation.md) separates executed kernel/provider checks from fixtures and configured workflows.

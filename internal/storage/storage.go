@@ -158,3 +158,33 @@ func Lock(path string) (*os.File, error) {
 	}
 	return h, nil
 }
+
+// CheckSpace is an advisory preflight. Atomic writes still handle ENOSPC because
+// other writers can consume space after this check.
+func CheckSpace(directory string, required uint64) error {
+	absolute, e := filepath.Abs(directory)
+	if e != nil {
+		return e
+	}
+	dir, e := linux.Open("/", strings.TrimPrefix(absolute, "/"), unix.O_PATH|unix.O_DIRECTORY)
+	if e != nil {
+		return e
+	}
+	defer dir.Close()
+	var fs unix.Statfs_t
+	if e = unix.Fstatfs(int(dir.Fd()), &fs); e != nil {
+		return e
+	}
+	if fs.Bsize <= 0 {
+		return fmt.Errorf("filesystem reported an invalid block size")
+	}
+	block := uint64(fs.Bsize)
+	blocks := required / block
+	if required%block != 0 {
+		blocks++
+	}
+	if fs.Bavail < blocks {
+		return fmt.Errorf("insufficient available disk space for the snapshot and configured reserve: %w", unix.ENOSPC)
+	}
+	return nil
+}

@@ -50,7 +50,7 @@ func Evaluate(s *domain.Snapshot, pack []rules.Rule) {
 			}
 			priv := isTrue("privilege.host_root")
 			score, factors := scoring.Score(r.Severity, ex, priv)
-			warnings := []string{"Conditional scenario: no vulnerability, successful compromise, or exploitation has been established."}
+			warnings := []string{"Conditional scenario: successful compromise, exploitation and actual impact have not been established."}
 			if !s.Complete {
 				warnings = append(warnings, "Some scan checks were incomplete; consult coverage and diagnostics.")
 			}
@@ -76,6 +76,9 @@ func Evaluate(s *domain.Snapshot, pack []rules.Rule) {
 			}
 			refs := expand(scoringRefs, obsByID)
 			f := domain.Finding{ID: domain.Hash("lasa.finding/v1", s.Host.ID, r.ID, r.Version, n.StableID), RuleID: r.ID, RuleVersion: r.Version, Title: r.Title, Description: r.Description, Subject: n.ID, Subjects: []string{n.ID}, StableSubject: n.StableID, Severity: r.Severity, Confidence: r.Confidence, Exposure: ex, Evidence: refs, Prerequisites: r.Prerequisites, Warnings: warnings, Remediation: r.Remediation, Priority: score, ScoreVersion: scoring.Version, Factors: factors}
+			if n.Kind == "asset" {
+				f.Description += " Inspected subject: " + n.Label + "."
+			}
 			f.Path = domain.AttackPath{ID: domain.Hash(f.ID, "path"), Entities: []string{n.ID}, Evidence: refs, EntryConditions: r.Prerequisites, ConditionalStep: "If an attacker first gains control of this subject, the observed conditions may increase its potential impact.", PotentialImpact: r.Description, Uncertainties: warnings, Factors: factors}
 			evidenceSet := map[string]bool{}
 			for _, id := range refs {
@@ -90,8 +93,16 @@ func Evaluate(s *domain.Snapshot, pack []rules.Rule) {
 				f.Path.Uncertainties = append(f.Path.Uncertainties, warning)
 			}
 
+			dependencies := map[string]bool{}
+			for _, id := range refs {
+				if o, ok := obsByID[id]; ok {
+					dependencies[o.Collector] = true
+				}
+			}
 			for _, c := range s.Coverage {
-				f.Coverage = append(f.Coverage, c.Collector)
+				if dependencies[c.Collector] {
+					f.Coverage = append(f.Coverage, c.Collector)
+				}
 			}
 			if prev, ok := findings[f.ID]; ok {
 				if prev.Priority >= f.Priority {

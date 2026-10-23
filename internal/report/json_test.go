@@ -67,3 +67,25 @@ func TestRejectsDanglingGraphAndFinding(t *testing.T) {
 		t.Fatal("dangling graph accepted")
 	}
 }
+
+func TestLegacyReportsAndInspectionVersionBoundary(t *testing.T) {
+	raw := []byte(`{"schema":"lasa.report/v1","scan_id":"s","host":{"id":"h"}}`)
+	if _, e := Decode(raw); e != nil {
+		t.Fatal("legacy report rejected", e)
+	}
+	s := domain.Snapshot{Schema: domain.LegacySchemaVersion, ScanID: "s", Host: domain.Host{ID: "h"}, Assets: []domain.Asset{{ID: "a", StableID: "a", Kind: "configuration"}}, Graph: domain.Graph{Nodes: []domain.Node{{ID: "a", Kind: "asset"}}}}
+	encoded, _ := Render(s, "json")
+	if _, e := Decode(encoded); e == nil {
+		t.Fatal("inspection extensions accepted as legacy schema")
+	}
+	s.Schema = domain.SchemaVersion
+	encoded, _ = Render(s, "json")
+	if _, e := Decode(encoded); e != nil {
+		t.Fatal("new inspection report rejected", e)
+	}
+	s.Assets = append(s.Assets, s.Assets[0])
+	encoded, _ = Render(s, "json")
+	if _, e := Decode(encoded); e == nil {
+		t.Fatal("duplicate inspection asset accepted")
+	}
+}

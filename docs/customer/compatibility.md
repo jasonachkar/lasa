@@ -21,11 +21,11 @@ Static collection and report workflows were exercised on a Debian 13.6 AMD64 clo
 | Cgroup runtime and service association | Heuristic association, not a runtime API inventory |
 | Kernel hardening metadata | Selected allowlist; not a complete kernel or LSM policy audit |
 | Evidence-linked local correlations | Implemented; conditional compromise remains explicit |
-| 15 builtin rule definitions | Tested; confirmed-exposure rule requires evidence static scans intentionally never fabricate |
+| 33 builtin rule definitions | Baseline and opt-in inspection rules; external-confirmation rules still require an independent source |
 | Active external exposure validation | Not implemented; no active port scanning |
 | Continuous runtime monitoring | Not implemented; optional bounded observation windows are supported |
 | Optional eBPF | Compiled CO-RE object and feature-detecting loader; runtime support requires target-host validation |
-| Effective write access for arbitrary identities | Not asserted; permission candidates retain ACL/mount/identity uncertainty |
+| Identity-aware discretionary access | Optional local-account/ACL/traversal analysis; LSM, immutable flags and external identity policy remain qualified |
 | Remote/cloud host inventory | Not implemented or required |
 | SecureObs upload | No built-in upload; local versioned ingestion contract provided |
 
@@ -41,8 +41,25 @@ Container detection uses cgroup naming hints. Custom runtimes, altered cgroup la
 
 The default scope omits arbitrary homes, deep directory trees, hidden service paths and symlink targets. Scoped metadata is not proof a service will load a file. Sudo/SSH acceptance policies, systemd activation, ACL interpretation, supplementary-group membership and mount/execution options can affect impact.
 
-LASA does not read service unit contents, PATH environments, private keys or application configuration contents. Conventional search-directory and service filename checks therefore remain conditional. Kernel LSM presence is contextual evidence, not proof of a policy's effectiveness.
+The default scan does not read service configuration contents or process environments. Optional inspections add effective native service/SSH/sudo policy, selected cron configuration, local identities, runtime settings and package data. See [security inspections](security-inspections.md) and [data access](data-and-privacy.md) for exact sources and retained fields. Kernel LSM presence remains contextual evidence, not proof of a policy's effectiveness.
 
 ## Completeness, scoring and exploitability
 
 No scan provides complete host security coverage or guaranteed detection. Scores are prioritization values, not exploit probabilities. A high-confidence observation of a risky combination does not prove a successful compromise. The supported static workflow can be useful while collection is partial; strict mode and downstream acceptance policy determine whether that coverage meets your operational needs.
+
+## Inspection provider requirements
+
+| Module | Provider/requirements | Explicit boundaries |
+| --- | --- | --- |
+| systemd/timers | Trusted root-owned `systemctl`, system manager access, JSON inventory output and selected effective properties | Alternate roots, unsupported execution flags, unresolved command syntax and inaccessible managers remain unknown |
+| SSH | Trusted root-owned OpenSSH `sshd` 9.3+ with configuration-only `-G`, readable configuration | Older provider versions remain unsupported; no fallback to host-key validation |
+| sudo | Trusted native `sudo` with supported long-list policy output; authorization for noninteractive queries | External identities, unusual RunAs/output syntax and query denials remain explicit gaps |
+| permissions | Local passwd/group records, metadata/ACL access, supported `openat2` behavior and mount metadata | No arbitrary NSS membership reconstruction, mandatory-policy proof, write attempt or universal remote-filesystem authorization model |
+| firewall | Trusted `nft`, authorized ruleset access in the scanner network namespace | Supported nftables subset only; named sets, transformations, other hooks and external filtering can make verdicts unknown |
+| containers | Explicit Docker-compatible local UNIX API 1.24–1.50 | No native containerd gRPC, Kubernetes inventory or remote TCP API |
+| packages | Trusted `dpkg-query` or `rpm`, exact-release advisory data and native version semantics | Automatic feed retrieval targets Debian; other supported schemes require authenticated database import |
+| scheduler | Readable supported cron/root spool sources; systemd manager for timer checks | Complex shell programs, wrappers, anacron semantics and arbitrary startup mechanisms are not fully interpreted |
+
+The scratch container image intentionally contains no host administration tools. Installing or mounting a native tool alone does not establish host visibility; manager sockets, namespaces, identity mapping and filesystem scope must also be correct. The scanner refuses tools with writable or non-root-controlled executable ancestry. Do not weaken these checks to remove diagnostics.
+
+Fixture and contract tests establish parser/rule behavior. Native provider, kernel and architecture compatibility must also be validated on the deployment targets. The maintainer VM harness automates that work from macOS or an authorized disposable Linux VM; an unexecuted matrix is not a verified support claim.

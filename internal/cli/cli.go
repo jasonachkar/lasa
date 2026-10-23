@@ -83,7 +83,7 @@ func New(out, errOut io.Writer) *cobra.Command {
 		}
 		return nil
 	}
-	root.AddCommand(scanCommand(), doctorCommand(), reportCommand(), explainCommand(), diffCommand(), rulesCommand(), daemonCommand(), &cobra.Command{Use: "version", Short: "Print scanner version", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+	root.AddCommand(advisoryCommand(), scanCommand(), doctorCommand(), reportCommand(), explainCommand(), diffCommand(), rulesCommand(), daemonCommand(), &cobra.Command{Use: "version", Short: "Print scanner version", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		_, e := fmt.Fprintln(c.OutOrStdout(), domain.Version)
 		return e
 	}})
@@ -122,6 +122,16 @@ func loadRules(path string) ([]rules.Rule, error) {
 }
 func configFlags(c *cobra.Command, cfg *config.Config) {
 	f := c.Flags()
+	f.StringSliceVar(&cfg.Inspect, "inspect", nil, "opt-in inspections: systemd,ssh,sudo,permissions,firewall,containers,packages,scheduler or all")
+	f.StringArrayVar(&cfg.SSHContexts, "ssh-context", nil, "sshd connection context (user=...,addr=...,host=...,laddr=...,lport=...); repeatable")
+	f.StringVar(&cfg.NetworkSource, "network-source", "", "source IP for local nftables analysis")
+	f.StringVar(&cfg.NetworkDestination, "network-destination", "", "local destination IP for wildcard listener analysis")
+	f.StringVar(&cfg.NetworkInterface, "network-interface", "", "ingress interface for nftables analysis")
+	f.StringVar(&cfg.AdvisoryFile, "advisories", "", "local LASA advisory database (no network access during scans)")
+	f.DurationVar(&cfg.AdvisoryMaxAge, "advisory-max-age", cfg.AdvisoryMaxAge, "maximum advisory age; 0 requires an unexpired database")
+	f.StringVar(&cfg.ContainerSocket, "container-socket", cfg.ContainerSocket, "explicit Docker-compatible UNIX socket; queried only by containers inspection")
+	f.IntVar(&cfg.MaxInspectionItems, "max-inspection-items", cfg.MaxInspectionItems, "per-module item budget (1..4096)")
+	f.DurationVar(&cfg.InspectionCommandTimeout, "inspection-command-timeout", cfg.InspectionCommandTimeout, "deadline for each trusted native read-only command")
 	f.StringVar(&cfg.Profile, "profile", cfg.Profile, "standard, deep (explicit UID 0), container or sensor")
 	f.DurationVar(&cfg.SensorDuration, "sensor-duration", cfg.SensorDuration, "optional sensor observation window (1ms..10m)")
 	f.DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "cooperative scan deadline")
@@ -375,6 +385,7 @@ func daemonCommand() *cobra.Command {
 	var dir, custom, policy string
 	var interval time.Duration
 	var retention int
+	var retentionBytes, minFreeBytes uint64
 	c := &cobra.Command{Use: "daemon", Short: "Run sequential scheduled scans with private atomic snapshots", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		engine, e := prepare(cfg, custom)
 		if e != nil {
@@ -391,7 +402,7 @@ func daemonCommand() *cobra.Command {
 				return e
 			}
 		}
-		d := application.Daemon{Directory: dir, Interval: interval, Retention: retention, Log: c.ErrOrStderr(), Scan: func(ctx context.Context) (domain.Snapshot, error) {
+		d := application.Daemon{Directory: dir, Interval: interval, Retention: retention, RetentionBytes: retentionBytes, MinFreeBytes: minFreeBytes, Log: c.ErrOrStderr(), Scan: func(ctx context.Context) (domain.Snapshot, error) {
 			s, e := engine.Scan(ctx, cfg)
 			if e == nil {
 				application.ApplyPolicy(&s, p, time.Now().UTC())
@@ -411,6 +422,8 @@ func daemonCommand() *cobra.Command {
 	c.Flags().StringVar(&dir, "state-dir", defaultDir, "private directory for lock and retained JSON snapshots")
 	c.Flags().DurationVar(&interval, "interval", 15*time.Minute, "delay between completed scans (minimum 1s)")
 	c.Flags().IntVar(&retention, "retention", 96, "maximum retained LASA snapshots (1..10000)")
+	c.Flags().Uint64Var(&retentionBytes, "retention-bytes", 0, "managed snapshot byte quota; 0 disables the byte quota")
+	c.Flags().Uint64Var(&minFreeBytes, "min-free-bytes", 16<<20, "minimum free-space reserve after the next snapshot")
 	c.Flags().StringVar(&custom, "rules", "", "explicit local custom rule pack")
 	c.Flags().StringVar(&policy, "suppressions", "", "local suppression policy, loaded at startup")
 	return c

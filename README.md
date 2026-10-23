@@ -2,9 +2,9 @@
 
 LASA is a local Linux security scanner that connects runtime exposure, privilege, isolation and sensitive resource metadata into evidence-backed, conditional risk scenarios. It explains what it observed, why a finding matters, what it could not establish and what to investigate next.
 
-A scan is read-only. LASA does not exploit vulnerabilities, change host security settings, collect process environments or command arguments, or send telemetry. Its JSON reports and executable work without a cloud service or SecureObs account.
+LASA analyzes local evidence without exploit tests or enforcement changes. The default scan does not read process environments or full arguments. Optional inspections expand configuration/provider access explicitly and discard raw responses and argument/environment fields; see the data-access contract. LASA sends no telemetry. Its JSON reports and executable work without a cloud service or SecureObs account.
 
-**Release status:** initial implementation, version 0.1.0. Static collection, correlation, CLI workflows and Linux builds have automated and local integration coverage. Privileged eBPF attachment/event delivery, host/container namespace combinations and systemd deployment require the validation described in the [engineering verification record](docs/maintainer/verification.md). This is not a claim of universal detection or completed production certification.
+**Coverage and validation:** baseline collection, configuration inspections, correlation and report workflows have automated tests. Native kernel/provider compatibility requires validation on deployment targets, including privileged eBPF and ARM64. See the [engineering verification record](docs/maintainer/verification.md) and [automated disposable-VM validation](docs/maintainer/validation.md).
 
 ## Quickstart
 
@@ -32,6 +32,9 @@ These documents explain the product's behavior and operational contract without 
 | --- | --- |
 | [Product guide](docs/customer/product-guide.md) | Purpose, scanning workflow, evidence and suitable use cases |
 | [Installation and quickstart](docs/customer/installation.md) | Prerequisites, installation, first scan and updates |
+| [Security inspections](docs/customer/security-inspections.md) | Effective configuration, identities, runtime and local firewall checks |
+| [Package advisories](docs/customer/package-advisories.md) | Offline vendor-derived matching, backports, provenance and freshness |
+| [Detection coverage](docs/customer/detection-coverage.md) | Detection areas, qualifications and visibility-aware changes |
 | [CLI reference](docs/customer/cli-reference.md) | Every command, flag, exit code and automation example |
 | [Data access and privacy](docs/customer/data-and-privacy.md) | Exactly what is read, retained, omitted and disclosed |
 | [Understanding results](docs/customer/results.md) | Confidence, exposure, conditional scenarios, scoring and comparison |
@@ -62,7 +65,8 @@ These documents explain the product's behavior and operational contract without 
 ## Commands
 
 ```text
-lasa scan                 Local read-only snapshot and analysis
+lasa scan                 Local snapshot; explicitly selected configuration inspections
+lasa advisories           Explicit advisory update or authenticated local import
 lasa doctor               Platform, visibility and optional sensor checks
 lasa explain ID --report  Evidence and explanation for one fingerprint
 lasa diff OLD NEW         Coverage-aware report comparison
@@ -82,8 +86,22 @@ make check                         # format, vet, tests, race, lint, dependency 
 make fuzz reproducible release-binaries sbom
 ```
 
-The scanner has no required external services. Dependency installation and vulnerability database refresh need network access; scans do not. Do not run privileged tests on a workstation or a shared CI runner. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+The scanner has no required external services. Dependency installation and explicit advisory/database updates need network access. Scans do not make direct outbound IP requests; selected native identity providers follow host policy. Do not run privileged tests on a workstation or a shared CI runner. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ## License
 
 The existing [MIT license](LICENSE) is retained. Selling software and support is compatible with that license; it does not restrict a recipient's rights to inspect, modify or redistribute the licensed source. A different commercial distribution model is an owner decision, described in the maintainer documentation.
+
+## Configuration and advisory inspections
+
+The default scan keeps its metadata-only collection scope. Explicitly enable deeper checks:
+
+```bash
+lasa scan --inspect systemd,ssh,permissions --format json --output inspection.report.json
+lasa advisories update --release trixie --output advisories.json
+sudo lasa scan --profile deep --inspect all --advisories advisories.json --timeout 2m --max-inspection-items 1024
+```
+
+Read [security inspections](docs/customer/security-inspections.md), [package advisories](docs/customer/package-advisories.md), [detection coverage](docs/customer/detection-coverage.md) and the expanded [data-access contract](docs/customer/data-and-privacy.md) before enabling modules. Reports use `lasa.report/v2`; the renderer still accepts legacy v1 reports. Diffs use `lasa.diff/v2` and include surface changes and visibility-aware remediation tracking.
+
+Maintainers: [inspection design and trust boundaries](docs/maintainer/inspection-design.md) · [automated native Linux VM validation from macOS](docs/maintainer/validation.md). The validation harness creates an isolated VM, runs real kernel/provider tests, retrieves private results and removes only its own VM. A configured validation job is not evidence that it has run.

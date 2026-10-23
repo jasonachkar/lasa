@@ -26,3 +26,6 @@ Unknown is never evidence of a secure state. Capability scope must precede host-
 Every exported contract has its own version. Keep customer-facing descriptions accurate as implementation changes. Changes to predicates, fingerprint semantics, report fields and coverage/resolution policy need tests and explicit compatibility review.
 
 - [Azure publishing and direct website recovery](azure.md)
+
+- [Inspection architecture, permission model and provider trust boundaries](inspection-design.md)
+- [Automated native VM validation from macOS](validation.md)

@@ -102,3 +102,7 @@ For every detection, add a positive case, a negative case, unknown/missing data,
 Use explicit fixture observations and expected outcomes, not tests that generate their expected values by evaluating the same condition tree. Review title and consequence wording independently of matching logic. A correct boolean condition can still produce an indefensible exploitability claim.
 
 The builtin tests enumerate cases for every reviewed rule. Fuzzing exercises the YAML loader; malformed or oversized packs must return an error without executing code, following aliases or making network requests. Increasing a rule's semantic power requires a registered Go predicate, tests and privacy/scope review; YAML alone cannot add Linux access.
+
+## Inspection assets
+
+Rules can target `subject: asset`. Use `asset.kind` to scope a rule to its configuration/identity/runtime/package subject type before evaluating its registered inspection predicates. Missing or conflicting evidence stays unknown. Inspection definitions share the builtin engine and tests; they do not bypass evidence, scoring, suppression or report validation.

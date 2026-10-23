@@ -1,6 +1,6 @@
 //go:build ignore
 
-// Regenerate with: go run tools/schema/main.go > schemas/report-v1.schema.json
+// Regenerate with: go run tools/schema/main.go > schemas/report-v2.schema.json
 package main
 
 import (
@@ -75,8 +75,8 @@ func schema(t reflect.Type) map[string]any {
 func main() {
 	root := schema(reflect.TypeFor[domain.Snapshot]())
 	root["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-	root["$id"] = "https://github.com/jasonachkar/lasa/schemas/report-v1.schema.json"
-	root["title"] = "LASA report v1"
+	root["$id"] = "https://github.com/jasonachkar/lasa/schemas/report-v2.schema.json"
+	root["title"] = "LASA report v2"
 	root["$defs"] = definitions
 	e := json.NewEncoder(os.Stdout)
 	e.SetIndent("", "  ")

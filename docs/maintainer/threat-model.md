@@ -39,7 +39,7 @@ The sample deep unit lists read/search and ptrace capabilities because they rela
 
 ## Data minimization and disclosure
 
-The scanner never reads full argv/environ, private keys, arbitrary configuration contents or network payloads. It hashes machine identity and pseudonymizes long hexadecimal cgroup identifiers. It does retain process names, file/mount paths, user/group numbers, service names, socket endpoints and kernel context. These can reveal infrastructure and occasionally sensitive names. Reports are private files, not encrypted vaults.
+The default scanner does not read full argv/environ, private keys, arbitrary configuration contents or network payloads. Explicit inspections trust selected native providers/configuration resolution and can receive argument/environment values in transient native/API responses; only allowlisted evidence is persisted. See [inspection trust boundaries](inspection-design.md). It hashes machine identity and pseudonymizes long hexadecimal cgroup identifiers. It does retain process names, file/mount paths, user/group numbers, service names, socket endpoints and kernel context. These can reveal infrastructure and occasionally sensitive names. Reports are private files, not encrypted vaults.
 
 Do not log complete snapshots or upload them to public CI artifacts by default. Support bundles should minimize and redact evidence. If a central ingestion layer is added, it must authenticate tenant/asset mapping, encrypt transport, apply size/schema limits and retain uncertainty. A report's own host ID is not a credential.
 

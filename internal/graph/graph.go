@@ -93,6 +93,9 @@ func (g *Index) Export() domain.Graph {
 }
 func Build(s *domain.Snapshot) (*Index, error) {
 	g := New()
+	for _, a := range s.Assets {
+		g.AddNode(domain.Node{ID: a.ID, StableID: a.StableID, Kind: "asset", Label: a.Label})
+	}
 	g.AddNode(domain.Node{ID: s.Host.ID, StableID: s.Host.ID, Kind: "host", Label: "visible Linux host scope"})
 	facts := map[string]map[string][]domain.Observation{}
 	known := map[string]bool{}
@@ -334,6 +337,20 @@ func Build(s *domain.Snapshot) (*Index, error) {
 			}
 			return domain.Unknown
 		}(), ids)
+	}
+	for _, a := range s.Assets {
+		if e := edge(a.ID, s.Host.ID, "INSPECTED_ON", refs(a.ID, "asset.kind")); e != nil {
+			return nil, e
+		}
+		for _, o := range facts[a.ID]["asset.related_subject"] {
+			if o.State == domain.Observed {
+				if _, ok := g.nodes[o.Value]; ok {
+					if e := edge(a.ID, o.Value, "INSPECTS", []string{o.ID}); e != nil {
+						return nil, e
+					}
+				}
+			}
+		}
 	}
 	s.Graph = g.Export()
 	return g, nil

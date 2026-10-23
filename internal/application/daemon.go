@@ -14,11 +14,13 @@ import (
 )
 
 type Daemon struct {
-	Directory string
-	Interval  time.Duration
-	Retention int
-	Scan      func(context.Context) (domain.Snapshot, error)
-	Log       io.Writer
+	Directory      string
+	Interval       time.Duration
+	Retention      int
+	RetentionBytes uint64
+	MinFreeBytes   uint64
+	Scan           func(context.Context) (domain.Snapshot, error)
+	Log            io.Writer
 }
 
 func (d Daemon) Run(ctx context.Context) error {
@@ -61,11 +63,17 @@ func (d Daemon) Run(ctx context.Context) error {
 			if e != nil {
 				return e
 			}
+			if uint64(len(raw)) > ^uint64(0)-d.MinFreeBytes {
+				return fmt.Errorf("snapshot and free-space reserve overflow")
+			}
+			if e = storage.CheckSpace(d.Directory, uint64(len(raw))+d.MinFreeBytes); e != nil {
+				return fmt.Errorf("snapshot disk-space preflight: %w", e)
+			}
 			name := "scan-" + s.Started.UTC().Format("20060102T150405.000000000Z") + "-" + s.ScanID + ".json"
 			if e = storage.Atomic(filepath.Join(d.Directory, name), raw); e != nil {
 				return fmt.Errorf("snapshot persistence failed: %w", e)
 			}
-			if e = storage.Prune(d.Directory, d.Retention); e != nil {
+			if e = storage.PruneLimits(d.Directory, d.Retention, d.RetentionBytes); e != nil {
 				return fmt.Errorf("snapshot retention failed: %w", e)
 			}
 			if d.Log != nil {

@@ -4,7 +4,7 @@
 
 ## Current integration boundary
 
-LASA is independently usable. It requires no SecureObs credentials, APIs, database or frontend. The integration artifact is the local JSON snapshot with schema `lasa.report/v1`. No automatic upload or background remote transmission is implemented.
+LASA is independently usable. It requires no SecureObs credentials, APIs, database or frontend. The integration artifact is the local JSON snapshot with schema `lasa.report/v2`. No automatic upload or background remote transmission is implemented.
 
 A SecureObs-side adapter can ingest authorized reports from a controlled file transfer, deployment agent or ingestion service. That adapter owns authentication, transport, tenant authorization, encryption, retention and audit logging. Never infer authorization from the report's host ID alone.
 
@@ -22,4 +22,6 @@ Validate size and schema before storage. Restrict nesting and array counts, reje
 
 For downstream code scanning integrations, SARIF exports logical runtime locations. GitHub repository views can have limited support for those locations; do not invent source-file coordinates to make a host finding appear inline.
 
-The public [report JSON schema](../../schemas/report-v1.schema.json) documents the exported field contract. Preserve schema versioning independently of the executable version.
+The public [report JSON schema](../../schemas/report-v2.schema.json) documents the exported field contract. Preserve schema versioning independently of the executable version.
+
+Ingestion must recognize v2 inspection assets and module/scope metadata. Legacy v1 remains readable by the current CLI, but older consumers are not automatically v2-compatible. Preserve unknowns, actual evidence dependencies, surface-change truncation and advisory freshness; do not convert lost visibility into resolution.

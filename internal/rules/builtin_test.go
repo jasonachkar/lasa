@@ -14,10 +14,29 @@ func TestEveryBuiltin(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(pack) != 15 {
-		t.Fatal("expected 15 reviewed rules")
+	if len(pack) != 33 {
+		t.Fatal("unexpected builtin rule count")
 	}
 	cases := map[string]map[string]string{
+		"LASA-101": {"asset.kind": "systemd_service", "systemd.writable_execution": "true"},
+		"LASA-102": {"asset.kind": "systemd_service", "systemd.exposed_unconfined": "true"},
+		"LASA-110": {"asset.kind": "ssh_policy", "ssh.root_password": "true"},
+		"LASA-111": {"asset.kind": "ssh_policy", "ssh.strict_modes_disabled": "true"},
+		"LASA-120": {"asset.kind": "sudo_identity", "sudo.unrestricted_root": "true", "sudo.passwordless_root": "false"},
+		"LASA-121": {"asset.kind": "sudo_identity", "sudo.passwordless_root": "true"},
+		"LASA-122": {"asset.kind": "sudo_identity", "sudo.writable_command": "true"},
+		"LASA-130": {"asset.kind": "permission_path", "permissions.privileged_write": "true"},
+		"LASA-140": {"asset.kind": "nftables_endpoint", "firewall.management_permitted": "true"},
+		"LASA-150": {"asset.kind": "runtime_container", "containers.privileged": "true"},
+		"LASA-151": {"asset.kind": "runtime_container", "containers.host_pid": "true"},
+		"LASA-152": {"asset.kind": "runtime_container", "containers.runtime_socket": "true"},
+		"LASA-153": {"asset.kind": "runtime_container", "containers.sensitive_mount": "true"},
+		"LASA-154": {"asset.kind": "runtime_container", "containers.unconfined_capabilities": "true"},
+		"LASA-160": {"asset.kind": "installed_package", "packages.vulnerable": "true", "packages.high_severity": "false", "packages.exposed_vulnerability": "false"},
+		"LASA-161": {"asset.kind": "installed_package", "packages.exposed_vulnerability": "true"},
+		"LASA-162": {"asset.kind": "installed_package", "packages.high_severity": "true", "packages.exposed_vulnerability": "false"},
+		"LASA-170": {"asset.kind": "scheduled_job", "scheduler.writable_root_job": "true"},
+
 		"LASA-001": {"network.potential": "true", "privilege.host_root": "true", "capability.dangerous": "true"},
 		"LASA-002": {"network.confirmed": "true", "privilege.host_root": "true"},
 		"LASA-003": {"network.potential": "true", "network.management": "true"},
@@ -41,7 +60,9 @@ func TestEveryBuiltin(t *testing.T) {
 				var out []domain.Observation
 				for k, v := range vals {
 					if negative {
-						if v == "true" {
+						if v == "false" {
+							v = "true"
+						} else if v == "true" {
 							v = "false"
 						} else {
 							v = "other"
