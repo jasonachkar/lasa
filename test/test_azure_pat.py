@@ -149,6 +149,8 @@ class PATTests(unittest.TestCase):
             def child(*args, **kwargs):
                 self.assertNotIn("AZURE_DEVOPS_EXT_PAT", os.environ)
                 self.assertNotIn(self.secret, repr((args, kwargs)))
+                if any("contents/azure-pipelines.yml" in str(arg) for arg in args):
+                    return "file"
                 return "fixture-non-PAT-value"
             def payload(*args):
                 self.assertNotIn(self.secret, repr(args))

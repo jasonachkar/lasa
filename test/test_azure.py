@@ -75,6 +75,32 @@ class ConfigureTests(unittest.TestCase):
         self.assertFalse(any(method == "POST" for method, _, _ in api.calls))
         self.assertTrue(any(method == "PUT" and path.endswith("build/definitions/9") for method, path, _ in api.calls))
 
+    def test_update_preserves_revision_folder_and_custom_triggers_while_repairing_github_metadata(self):
+        api = FakeAzure(existing=True)
+        api.definition.update({"path": "\\Security", "triggers": [{"settingsSourceType": 2, "triggerType": 2}],
+                               "repository": {"name": "jasonachkar/lasa", "properties": {"connectedServiceId": "endpoint-id"}}})
+        self.run_configure(api, True)
+        definition = next(data for method, path, data in api.calls if method == "PUT" and path.endswith("build/definitions/9"))
+        self.assertEqual(definition["revision"], 2)
+        self.assertEqual(definition["path"], "\\Security")
+        self.assertEqual(definition["triggers"], api.definition["triggers"])
+        self.assertEqual(definition["repository"]["properties"]["apiUrl"], "https://api.github.com/repos/jasonachkar/lasa")
+        self.assertEqual(definition["repository"]["properties"]["defaultBranch"], "refs/heads/feature/lasa")
+
+    def test_unready_github_endpoint_never_writes_definition_or_switches_provider(self):
+        api = FakeAzure()
+        original = api.request
+        def unready(method, path, data=None, **kwargs):
+            response = original(method, path, data, **kwargs)
+            if method == "POST" and "serviceendpoint" in path:
+                response["isReady"] = False
+            return response
+        api.request = unready
+        with self.assertRaisesRegex(RuntimeError, "LASA-GitHub is not ready"):
+            self.run_configure(api)
+        self.assertFalse(any(method != "GET" and "build/definitions" in path for method, path, _ in api.calls))
+        self.run_command.assert_not_called()
+
     def test_configure_only_does_not_queue(self):
         api = FakeAzure()
         self.run_configure(api, True)

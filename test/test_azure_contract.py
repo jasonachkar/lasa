@@ -73,6 +73,8 @@ class HTTPContractTests(unittest.TestCase):
                     result = {"authenticatedUser": {"id": "fixture-owner", "isActive": True}}
                 elif fixture.missing_project and path == "_apis/projects/LASA":
                     status, result = 404, {}
+                elif self.command in ("POST", "PUT") and "build/definitions" in path and payload.get("repository", {}).get("properties", {}).get("apiUrl") != "https://api.github.com/repos/jasonachkar/lasa":
+                    status, result = 400, {"typeKey": "ArgumentNullException", "message": "Value cannot be null. Parameter name: apiUrl"}
                 else:
                     routed = path
                     if "type" in query:
@@ -107,6 +109,11 @@ class HTTPContractTests(unittest.TestCase):
                 module.configure(self.client(pat=pat), "LASA", {"GH_TOKEN": "fixture-github-token"}, {}, "refs/heads/feature/lasa", True)
                 github.assert_called_once()
                 self.assertTrue(any(method == "POST" for method, *_ in self.calls))
+                definition = next(payload for method, path, _, _, payload in self.calls if method == "POST" and "build/definitions" in path)
+                self.assertEqual(definition["repository"]["properties"]["defaultBranch"], definition["repository"]["defaultBranch"])
+                self.assertEqual(definition["repository"]["url"], "https://github.com/jasonachkar/lasa")
+                self.assertEqual(definition["path"], "\\")
+                self.assertEqual(definition["triggers"], [{"settingsSourceType": 2, "triggerType": 2}])
                 for _, _, _, headers, payload in self.calls:
                     self.assertTrue(headers["Authorization"].startswith("Basic " if pat else "Bearer "))
                     self.assertEqual(headers["X-Tfs-Fedauthredirect"], "Suppress")
@@ -124,7 +131,7 @@ class HTTPContractTests(unittest.TestCase):
         with self.assertRaisesRegex(module.AzureHTTPError, "API version: 7.1") as result:
             self.client().request("GET", "_apis/connectionData", version="7.1")
         self.assertEqual(result.exception.status, 400)
-        self.assertIn("API contract failure", str(result.exception))
+        self.assertIn("request during validation", str(result.exception))
         self.assertNotIn("fixture endpoint", str(result.exception))
 
     def test_read_only_check_stops_at_rejected_resource_with_api_context(self):
@@ -141,8 +148,47 @@ class HTTPContractTests(unittest.TestCase):
             self.client().request("GET", "_apis/projects/LASA")
         self.assertNotIn("PRIVATE_RESPONSE_VALUE", str(result.exception))
 
+    def test_missing_github_api_url_reproduces_definition_400_with_safe_field_diagnostic(self):
+        old_payload = {"name": "LASA", "repository": {"id": "jasonachkar/lasa", "type": "GitHub",
+                       "properties": {"connectedServiceId": "fixture-endpoint"}},
+                       "variables": {"APT_SIGNING_KEY": {"isSecret": True, "value": "PRIVATE_SIGNING_KEY"}}}
+        with self.assertRaises(module.AzureHTTPError) as result:
+            self.client().request("POST", "project-id/_apis/build/definitions", old_payload)
+        self.assertEqual(result.exception.status, 400)
+        self.assertIn("repository.properties.apiUrl", str(result.exception))
+        self.assertIn("missing required argument", str(result.exception))
+        self.assertNotIn("PRIVATE_SIGNING_KEY", str(result.exception))
+
 
 class EntryPointTests(unittest.TestCase):
+    def test_validation_diagnostics_never_echo_server_values_or_secret_yaml_text(self):
+        body = json.dumps({"typeKey": "PipelineValidationException", "message":
+                           "azure-pipelines.yml (Line: 12, Col: 9): Unexpected value 'PRIVATE_SIGNING_KEY'. "
+                           "A service connection does not exist: PRIVATE_ENDPOINT. apiUrl=PRIVATE_URL; "
+                           "Authorization: Bearer PRIVATE_PAT; PRIVATE_EMAIL@example.test"})
+        details = " ".join(module.azure_validation_details(body))
+        self.assertIn("YAML location: azure-pipelines.yml line 12, column 9", details)
+        self.assertIn("repository.properties.apiUrl", details)
+        self.assertIn("could not use the GitHub service connection", details)
+        for value in ("PRIVATE", "Unexpected value", "Authorization", "example.test"):
+            self.assertNotIn(value, details)
+
+    def test_github_preflight_uses_copied_token_and_explicit_host(self):
+        with patch.dict(os.environ, {"GH_TOKEN": "different-owner-session"}), patch.object(module, "command", return_value="file") as command:
+            module.verify_github_source("fixture-copied-token", "refs/heads/feature/lasa")
+        self.assertEqual(command.call_args.kwargs["env"]["GH_TOKEN"], "fixture-copied-token")
+        self.assertEqual(command.call_args.args[:4], ("gh", "api", "--hostname", "github.com"))
+        self.assertIn("ref=refs%2Fheads%2Ffeature%2Flasa", command.call_args.args[4])
+        self.assertNotIn("fixture-copied-token", repr(command.call_args.args))
+
+    def test_github_preflight_denial_or_wrong_file_type_has_safe_diagnostic(self):
+        with patch.object(module, "command", side_effect=subprocess.CalledProcessError(1, ["gh"])):
+            with self.assertRaisesRegex(RuntimeError, "cannot read azure-pipelines.yml"):
+                module.verify_github_source("PRIVATE_TOKEN", "refs/heads/feature/lasa")
+        with patch.object(module, "command", return_value="dir"):
+            with self.assertRaisesRegex(RuntimeError, "regular file"):
+                module.verify_github_source("PRIVATE_TOKEN", "refs/heads/feature/lasa")
+
     def test_missing_and_denied_api_responses_close_http_streams(self):
         for status in (404, 403):
             with self.subTest(status=status):
@@ -203,6 +249,15 @@ class EntryPointTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "GitHub credentials are unavailable"):
                     module.main()
             self.assertEqual(command.call_count, 1)
+            mutation.assert_not_called()
+
+    def test_unreadable_yaml_stops_main_before_key_preparation_or_export(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home, _ = test_azure_pat.PATTests().state(directory)
+            with patch.dict(os.environ, {"LASA_AZURE_CHECK": "0", "LASA_AZURE_DEVOPS_PAT": "0"}), patch.object(module.Path, "home", return_value=home), patch.object(module, "authenticated_azure", return_value=object()), patch.object(module, "github_token", return_value="fixture-github-token"), patch.object(module, "command", return_value="feature/lasa") as command, patch.object(module, "verify_github_source", side_effect=RuntimeError("YAML unavailable")), patch.object(module.subprocess, "run") as mutation:
+                with self.assertRaisesRegex(RuntimeError, "YAML unavailable"):
+                    module.main()
+            command.assert_called_once_with("git", "branch", "--show-current")
             mutation.assert_not_called()
 
     def test_resource_tenant_header_is_accepted_only_as_a_guid(self):

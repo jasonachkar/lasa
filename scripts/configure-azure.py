@@ -67,11 +67,28 @@ def github_token():
     return token
 
 
+def verify_github_source(token, branch):
+    # Verify the same credential Azure will receive, rather than a different gh session.
+    environment = dict(os.environ, GH_TOKEN=token)
+    path = "repos/jasonachkar/lasa/contents/azure-pipelines.yml?" + urlencode({"ref": branch})
+    try:
+        kind = command("gh", "api", "--hostname", "github.com", path, "--jq", ".type",
+                       env=environment, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.CalledProcessError):
+        raise RuntimeError("The GitHub credential being copied to Azure cannot read azure-pipelines.yml on the selected LASA branch. "
+                           "Check that the branch is pushed and LASA_GITHUB_TOKEN (or the gh session token) has repository contents access. "
+                           "No publishing keys or pipeline configuration were changed by this check.") from None
+    if kind != "file":
+        raise RuntimeError("GitHub did not return azure-pipelines.yml as a regular file on the selected branch. "
+                           "No publishing keys or pipeline configuration were changed by this check.")
+
+
 class AzureHTTPError(RuntimeError):
-    def __init__(self, method, path, status, tenant=None, service_code=None, *, pat=False, version=None):
+    def __init__(self, method, path, status, tenant=None, service_code=None, *, pat=False, version=None, validation=()):
         self.status = status
         self.tenant = tenant
         self.service_code = service_code
+        self.validation = validation
         detail = ""
         if service_code == "TF401444":
             detail = " Azure DevOps requires this account to complete its first browser sign-in to the organization."
@@ -81,7 +98,7 @@ class AzureHTTPError(RuntimeError):
                     "Required bootstrap scopes are listed in docs/maintainer/azure.md#use-an-azure-devops-pat. " if pat else
                     "Check organization membership, project administration and token/tenant access. ")
         if status == 400:
-            recovery = "Azure rejected the API version or request payload; this is an API contract failure, not evidence of missing organization membership. "
+            recovery = "Azure rejected this request during validation; check repository metadata, YAML and resource authorization. "
         elif status == 429:
             recovery = "Azure throttled this request; wait before retrying setup. "
         elif status >= 500:
@@ -89,7 +106,8 @@ class AzureHTTPError(RuntimeError):
         super().__init__(f"Azure {method} {path.split('?')[0]} returned HTTP {status}. "
                          + (f"API version: {version}. " if version else "")
                          + (f"Service code: {service_code}." if service_code else "") + detail + " "
-                         + recovery + "The response body is suppressed to protect secrets.")
+                         + recovery + ("Safe validation details: " + " ".join(validation) + " " if validation else "")
+                         + "The response body is suppressed to protect secrets.")
 
 
 class AzureRedirectError(AzureHTTPError):
@@ -125,18 +143,56 @@ def access_denial(error):
     return error.status in (401, 403) or isinstance(error, AzureRedirectError) and error.authentication
 
 
-def azure_service_code(error):
-    # Extract only a closed set of actionable service codes, never arbitrary error text.
+def azure_error_body(error):
+    # Read once, with a fixed limit; helpers emit only closed classifications below.
     if error.fp is None:
-        return None
+        return ""
     try:
-        body = error.read(65536).decode("utf-8", errors="replace")
+        return error.read(65536).decode("utf-8", errors="replace")
     except (OSError, ValueError):
-        return None  # Optional error details must not hide the original HTTP status.
+        return ""  # Optional error details must not hide the original HTTP status.
+
+
+def azure_service_code(body):
     for code in ("TF401444", "TF400813", "VS30063"):
         if re.search(r"\b" + code + r"\b", body):
             return code
     return None
+
+
+def azure_validation_details(body):
+    # Never echo arbitrary server messages, quoted YAML values or exception names:
+    # Azure can include request variables/keys in validation responses.
+    details = []
+    rules = (
+        (r"\b(?:PipelineValidationException|BuildDefinitionValidationException|DefinitionValidationException)\b",
+         "Azure pipeline validation failed."),
+        (r"\bVssInvalidPreviewVersionException\b", "Azure requires the endpoint's preview API revision."),
+        (r"\bArgumentNullException\b", "Azure reports a missing required argument."),
+        (r"\bapiUrl\b", "Check repository.properties.apiUrl (the GitHub REST repository URL)."),
+        (r"\bdefaultBranch\b", "Check repository.defaultBranch and repository.properties.defaultBranch."),
+        (r"\bconnectedServiceId\b", "Check repository.properties.connectedServiceId (the GitHub connection ID)."),
+        (r"\byamlFilename\b", "Check process.yamlFilename (azure-pipelines.yml)."),
+        (r"could not (?:find|retrieve|read|load)[^\r\n]{0,200}(?:yaml|azure-pipelines)",
+         "Azure could not load the pipeline YAML from the configured GitHub branch."),
+        (r"(?:service connection|service endpoint)[^\r\n]{0,200}(?:not found|does not exist|not authorized|disabled)",
+         "Azure could not use the GitHub service connection; check its credentials and project authorization."),
+        (r"(?:not authorized|access denied|do not have permission|does not have permission)",
+         "Azure reported an authorization failure during validation; check pipeline, GitHub connection and agent-queue permissions."),
+        (r"(?:no hosted parallelism|parallelism[^\r\n]{0,80}(?:not been|not available|not enabled))",
+         "Azure reports unavailable hosted-job capacity."),
+    )
+    for pattern, explanation in rules:
+        if re.search(pattern, body, re.IGNORECASE):
+            details.append(explanation)
+    locations = re.finditer(r"azure-pipelines\.yml[^\r\n]{0,12}\(Line:\s*([0-9]{1,6}),\s*Col:\s*([0-9]{1,6})\)", body)
+    for location in locations:
+        point = f"YAML location: azure-pipelines.yml line {int(location[1])}, column {int(location[2])}."
+        if point not in details:
+            details.append(point)
+        if len(details) >= 12:
+            break
+    return tuple(details)
 
 
 def tenant_challenge(headers):
@@ -188,8 +244,9 @@ class Azure:
             try:
                 if missing and error.code == 404:
                     return None
-                safe_error = AzureHTTPError(method, path, error.code, tenant_challenge(error.headers), azure_service_code(error),
-                                            pat=self.pat, version=version)
+                body = azure_error_body(error)
+                safe_error = AzureHTTPError(method, path, error.code, tenant_challenge(error.headers), azure_service_code(body),
+                                            pat=self.pat, version=version, validation=azure_validation_details(body))
             finally:
                 error.close()
             raise safe_error from None
@@ -401,14 +458,22 @@ def configure(api, project_name, secrets, public, branch, configure_only):
         endpoint = api.request("PUT", "_apis/serviceendpoint/endpoints/" + endpoint["id"], endpoint)
     else:
         endpoint = api.request("POST", "_apis/serviceendpoint/endpoints", endpoint)
+    if endpoint.get("isReady") is False:
+        raise RuntimeError("Azure reports that LASA-GitHub is not ready. Check the connection's GitHub credential and project access. "
+                           "The pipeline definition was not written and the publishing provider was not switched.")
     variables = {name: {"value": value, "isSecret": False} for name, value in public.items()}
     variables.update({name: {"value": value, "isSecret": True} for name, value in secrets.items()})
+    definition.setdefault("path", "\\")
+    # Follow Azure CLI's GitHub provider contract, including both branch fields and apiUrl.
+    # Only YAML CI is configured; secret-bearing PR execution remains disabled in YAML.
+    definition.setdefault("triggers", [{"settingsSourceType": 2, "triggerType": 2}])
     definition.update({"name": "LASA", "type": "build", "queueStatus": "enabled",
                        "queue": {"id": queues[0]["id"]}, "process": {"type": 2, "yamlFilename": "azure-pipelines.yml"},
                        "variables": variables,
                        "repository": {"id": "jasonachkar/lasa", "name": "jasonachkar/lasa", "type": "GitHub",
-                                      "url": "https://github.com/jasonachkar/lasa.git", "defaultBranch": branch,
+                                      "url": "https://github.com/jasonachkar/lasa", "defaultBranch": branch,
                                       "clean": "true", "properties": {"connectedServiceId": endpoint["id"],
+                                      "apiUrl": "https://api.github.com/repos/jasonachkar/lasa", "defaultBranch": branch,
                                       "reportBuildStatus": "true", "fetchDepth": "0"}}})
     definition = api.request("PUT" if definitions else "POST", prefix + "build/definitions" +
                              ("/" + str(definition["id"]) if definitions else ""), definition)
@@ -479,6 +544,8 @@ def main():
     else:
         api = authenticated_azure(organization, project, os.environ.get("LASA_AZURE_TENANT"), reauthenticate)
     token = github_token()  # Direct Python invocation must work without wrapper-only environment setup.
+    branch = "refs/heads/" + command("git", "branch", "--show-current")
+    verify_github_source(token, branch)
     subprocess.run(["bash", str(Path(__file__).resolve().parent / "prepare-apk-key.sh"), str(state), "jasonachkar/lasa"], check=True)
     # Short alias avoids macOS GnuPG Unix socket length limits.
     with tempfile.TemporaryDirectory(prefix="lasa-gpg-", dir="/tmp") as temp:
@@ -497,7 +564,6 @@ def main():
     public = {"APT_SIGNING_FINGERPRINT": fingerprint, "APK_PUBLIC_KEY_SHA256": (state / "apk-public-key.sha256").read_text().strip(), "DISTRIBUTION_REPOSITORY": "jasonachkar/homebrew-lasa",
               "DISTRIBUTION_BRANCH": command("gh", "api", "repos/jasonachkar/homebrew-lasa", "--jq", ".default_branch"),
               "APT_REPOSITORY_URL": "https://lasa.secureobs.com/apt", "DOCS_SITE_URL": "https://lasa.secureobs.com/"}
-    branch = "refs/heads/" + command("git", "branch", "--show-current")
     configure(api, project, secrets, public, branch,
               os.environ.get("LASA_AZURE_CONFIGURE_ONLY") == "1")
 

@@ -92,7 +92,30 @@ Direct Python invocation does not install tools or perform the wrapper's Git che
 
 The HTTP client follows [Microsoft's Python SDK authentication headers](https://github.com/microsoft/azure-devops-python-api/blob/86c9a559fc4ab309df21e674b236a542f9e77f89/azure-devops/azure/devops/client.py), including `X-VSS-ForceMsaPassThrough: true` for personal Microsoft accounts and federated-redirect suppression. It uses the SDK's `7.1-preview.1` connection/agent-queue/pipeline-permission revisions and `7.1-preview.4` service-endpoint revision; published core/build contracts use `7.1`. These API revision names describe Azure's endpoints, not LASA's product status. The client accepts a tenant GUID from Azure's `X-VSS-ResourceTenant` header as well as the trusted Microsoft `WWW-Authenticate` challenge. Explicit tenant choices still take precedence, and PAT mode never retries through CLI tenants.
 
-HTTP 400 points to an API version/payload problem, 429 to throttling and 5xx to a service failure; these are no longer all explained as membership failures. Invalid JSON shapes produce a bounded, redacted API diagnostic. Missing, rejected and redirected HTTP responses close their underlying streams. Before updating a GitHub service connection, normal setup validates the hosted queue and refuses to overwrite an unrelated existing pipeline.
+HTTP 400 identifies request validation, which can include repository metadata, YAML or resource authorization; it does not by itself identify an incorrect API version. HTTP 429 identifies throttling and 5xx a service failure. Invalid JSON shapes produce a bounded, redacted API diagnostic. Missing, rejected and redirected HTTP responses close their underlying streams. Before updating a GitHub service connection, normal setup validates the hosted queue and refuses to overwrite an unrelated existing pipeline.
+
+## Recover from build-definition HTTP 400
+
+An error at `POST PROJECT_ID/_apis/build/definitions` means organization/project authentication and the preceding service-connection request succeeded, but Azure rejected pipeline creation. Keep the same usable bootstrap credential and saved signing state; resetting trust keys does not repair this request.
+
+The GitHub provider metadata follows [Microsoft's Azure CLI pipeline builder](https://github.com/Azure/azure-devops-cli-extension/blob/429a129a69306ae7377684b00660dd3521a126ea/azure-devops/azext_devops/dev/pipelines/pipeline_create.py):
+
+| Definition field | LASA value |
+| --- | --- |
+| `repository.id` / `repository.name` | `jasonachkar/lasa` |
+| `repository.type` | `GitHub` |
+| `repository.url` | `https://github.com/jasonachkar/lasa` |
+| `repository.defaultBranch` and `repository.properties.defaultBranch` | The same selected `refs/heads/...` branch |
+| `repository.properties.apiUrl` | `https://api.github.com/repos/jasonachkar/lasa` |
+| `repository.properties.connectedServiceId` | The created/reused LASA-GitHub connection ID |
+| `process` | Type `2`, file `azure-pipelines.yml` |
+| `path` for a new definition | Root folder `\` |
+
+Earlier bootstrap revisions omitted the provider's `apiUrl` and branch property. Updating this checkout repairs the payload on retry. New definitions explicitly use the YAML CI trigger; the YAML limits it to trusted `main` and disables PR runs. Existing definition revisions, folders and trigger settings are preserved on update. A connection that explicitly reports `isReady: false` stops before a pipeline-definition write/provider switch.
+
+Before preparing/exporting publishing keys, normal setup now verifies that the exact GitHub token being copied to Azure can read `azure-pipelines.yml` on the selected pushed branch, using the explicit `github.com` host. This detects a dedicated `LASA_GITHUB_TOKEN` whose access differs from the owner's default GitHub session. This check establishes repository contents access; Azure's provider authorization and webhook policies can impose additional requirements.
+
+For further validation failures, the error retains fixed classifications and known field names such as `repository.properties.apiUrl`, plus `azure-pipelines.yml` line/column locations when Azure supplies them. It can identify missing arguments, pipeline validation, unavailable YAML, connection authorization and hosted-job capacity. It never prints arbitrary messages, quoted YAML values, token/key material or raw response bodies. Unrecognized details stay suppressed rather than being guessed or echoed. Error reads remain bounded to 64 KiB and do not bypass a failed validation.
 
 ## Costs, consent and failure recovery
 
