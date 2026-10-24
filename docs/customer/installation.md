@@ -6,7 +6,7 @@
 
 Use Linux on AMD64 or ARM64. LASA uses `openat2` to constrain metadata paths; Linux 5.6 introduced this syscall, but kernel configuration, seccomp and container policy can still make it unavailable. Procfs must be mounted and the scanner's own metadata must be visible. No database, runtime control socket, API key, SecureObs account or outbound network access is required for scanning.
 
-Build with the supported Go 1.27.2 patch release. CGO is disabled for release binaries. A C compiler is needed only for race tests and a pinned Clang/libbpf toolchain only for regenerating the optional eBPF object. The object is already embedded in normal builds.
+Build with the supported Go 1.27.3 patch release. CGO is disabled for release binaries. A C compiler is needed only for race tests and a pinned Clang/libbpf toolchain only for regenerating the optional eBPF object. The object is already embedded in normal builds.
 
 ## Configure your Linux package manager
 
@@ -64,7 +64,7 @@ Do not remove distribution-wide keyrings or unrelated repository files. Local re
 ## Build from source
 
 ```sh
-go version                         # should report go1.27.2
+go version                         # should report go1.27.3
 make build
 ./bin/lasa version
 ./bin/lasa doctor

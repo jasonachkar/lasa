@@ -19,7 +19,7 @@ sh install-lasa.sh
 
 Then use `sudo apt install lasa`, `sudo dnf install lasa`, `sudo zypper install lasa`, `sudo pacman -S lasa` or `sudo apk add lasa` as appropriate. [Installation](docs/customer/installation.md) describes trust, upgrades, supported systems and removal. These are LASA-owned repositories; default distribution repositories require separate maintainer acceptance.
 
-Use Linux AMD64 or ARM64, kernel support for `openat2` (normally Linux 5.6+), and Go **1.27.2** to build:
+Use Linux AMD64 or ARM64, kernel support for `openat2` (normally Linux 5.6+), and Go **1.27.3** to build:
 
 ```sh
 git clone https://github.com/jasonachkar/lasa.git

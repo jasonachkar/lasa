@@ -42,7 +42,7 @@ else
   exit 1
 fi
 case "$(uname -m)" in x86_64) arch=amd64;; aarch64|arm64) arch=arm64;; *) echo 'Unsupported native validation architecture' >&2; exit 1;; esac
-version=1.27.2
+version=1.27.3
 tools="$PWD/.build/validation-tools"
 mkdir -p "$tools"
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 60 --max-filesize 8388608 'https://go.dev/dl/?mode=json&include=all' -o "$tools/go-releases.json"

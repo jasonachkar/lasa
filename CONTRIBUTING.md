@@ -1,6 +1,6 @@
 # Contributing
 
-Use Linux and Go 1.27.2. Read [architecture](docs/maintainer/architecture.md), [threat model](docs/maintainer/threat-model.md) and [development](docs/maintainer/development.md) before changing collection or inference.
+Use Linux and Go 1.27.3. Read [architecture](docs/maintainer/architecture.md), [threat model](docs/maintainer/threat-model.md) and [development](docs/maintainer/development.md) before changing collection or inference.
 
 Add tests before changing behavior. Preserve the distinction between observed, derived, unknown and conditional. Never add credential/argv/payload collection or active probing as an incidental feature. Every finding needs provenance, prerequisites, uncertainty and actionable remediation. Missing evidence must not become a negative result or resolution.
 

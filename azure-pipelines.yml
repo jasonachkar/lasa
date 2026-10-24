@@ -39,7 +39,7 @@ stages:
               GITHUB_REPOSITORY: jasonachkar/lasa
           - task: GoTool@0
             inputs:
-              version: '1.27.2'
+              version: '1.27.3'
           - bash: |
               set -euo pipefail
               sudo apt-get update -o APT::Update::Error-Mode=any

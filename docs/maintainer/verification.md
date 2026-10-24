@@ -4,6 +4,8 @@
 
 Verification date: **2026-10-18**. Scanner version: **0.1.0**. This records executed work, not a claim that every production environment is supported.
 
+Current builds require **Go 1.27.3** after the GO-2026-6809 security update. Earlier runs below retain their original toolchain versions as historical evidence.
+
 ## Implemented deliverable
 
 A functional local Go scanner with bounded Linux process, identity, namespace, socket, filesystem and kernel metadata collection; typed four-state observations; a provenance-aware graph; fifteen reviewed rule definitions; conditional local correlations; stable fingerprints; explicit scoring contributions; and actionable diagnostics/coverage.
@@ -245,3 +247,11 @@ Executed checks:
 - ShellCheck passed for every shell script, actionlint passed, Python compiled and whitespace checks passed. The pinned GitHub CLI 2.83.2 official checksum file was retrieved for both architectures; the AMD64 archive matched its literal SHA-256, executed successfully and exposed `gh attestation verify`. ARM64 archive execution was not performed.
 
 Not executed here: actual macOS/Homebrew/Multipass installation, a real disposable Ubuntu publisher, Ubuntu guest provisioning, native ARM64 package clients or the ARM64 static-QEMU matrix, full owner release/signing/Pages deployment, or a new current vulnerability-service result. Those require the owner's Mac/network/credentials. QEMU is explicitly labeled emulated AMD64 coverage and does not replace native ARM64 validation. Earlier privileged kernel/provider and vulnerability-service limitations remain applicable. Fixtures and source changes are not reported as a successful owner deployment.
+
+## Go standard-library security patch: GO-2026-6809
+
+The owner's live local deployment found GO-2026-6809 (`crypto/x509` intermediate-certificate distrust) in Go 1.27.2 and stopped during verification, before transferring publishing credentials. The reported fixed toolchain is Go 1.27.3. The module minimum, Makefile pin, local publisher and validation VM downloads, GitHub/Azure toolchain selections, BPF toolchain guidance and current documentation now require 1.27.3. Historical execution records above retain the versions actually used. The vulnerability gate remains mandatory.
+
+The official Go HTTPS manifest was retrieved and its Linux AMD64 1.27.3 archive was downloaded, verified against SHA-256 `65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40` and installed only in the writable workspace. Formatting, vet, unit/integration/end-to-end tests, race checks, staticcheck and module allowlist/checksum verification passed with this toolchain. An initial staticcheck cache write was blocked by the workspace's read-only home directory; rerunning that remaining check with a writable `XDG_CACHE_HOME` passed. Repeated builds matched for Linux AMD64 and ARM64, and both release-binary metadata records explicitly reported `go1.27.3`. Native ARM64 execution was not performed.
+
+All 99 Python tests, ShellCheck/actionlint, whitespace checks and a strict 13-page MkDocs build passed. A live `govulncheck ./...` was attempted with Go 1.27.3 but the environment proxy denied `https://vuln.go.dev/index/modules.json.gz` (`Forbidden`). Consequently no current clean vulnerability result or complete `make check` success is claimed here. The owner must rerun normal local deployment, whose live vulnerability check remains in place; no advisory suppression, old database fallback or verification bypass was added. No owner release, key rotation or hosted deployment was performed from this workspace.

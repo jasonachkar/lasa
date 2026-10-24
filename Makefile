@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 GO ?= go
-GO_VERSION := 1.27.2
+GO_VERSION := 1.27.3
 VERSION ?= 0.1.0-dev
 VULN_DB ?=
 BIN := bin/lasa

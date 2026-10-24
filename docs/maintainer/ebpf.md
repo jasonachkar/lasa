@@ -48,7 +48,7 @@ The checked-in object permits self-contained CGO-free normal builds. Maintainers
 make bpf
 ```
 
-The directive calls `scripts/generate-bpf.sh`, which uses the cilium/ebpf version pinned in `go.mod`, fixed flags and source-path remapping. `BPF_CFLAGS` can supply a trusted include directory. `bpf/Dockerfile` pins a Debian 13.6 AMD64 manifest and explicit compiler/header package versions. Mount a checksum-verified Go 1.27.2 toolchain read-only at `/opt/go` and the checkout at `/src`; see the BPF CI job for the complete container invocation.
+The directive calls `scripts/generate-bpf.sh`, which uses the cilium/ebpf version pinned in `go.mod`, fixed flags and source-path remapping. `BPF_CFLAGS` can supply a trusted include directory. `bpf/Dockerfile` pins a Debian 13.6 AMD64 manifest and explicit compiler/header package versions. Mount a checksum-verified Go 1.27.3 toolchain read-only at `/opt/go` and the checkout at `/src`; see the BPF CI job for the complete container invocation.
 
 Review source and generated diffs together. Do not replace the object with one downloaded from an unverified URL. Do not alter artifact checksums to silence a mismatch. Binary/object compilation is a supply-chain check; event delivery remains a separate test.
 

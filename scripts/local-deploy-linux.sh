@@ -37,12 +37,12 @@ case "$1" in
         ;;
       *) echo 'The publisher supports AMD64 and ARM64 guests.' >&2; exit 1;;
     esac
-    stage='installing checksum-verified Go 1.27.2'
+    stage='installing checksum-verified Go 1.27.3'
     curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL --retry 3 --max-time 90 --max-filesize 8388608 \
       'https://go.dev/dl/?mode=json&include=all' -o "$tools/go-releases.json"
     python3 - "$tools/go-releases.json" "$arch" > "$tools/go.sha256" <<'PY'
 import json, re, sys
-filename = 'go1.27.2.linux-' + sys.argv[2] + '.tar.gz'
+filename = 'go1.27.3.linux-' + sys.argv[2] + '.tar.gz'
 for release in json.load(open(sys.argv[1])):
     for artifact in release.get('files', []):
         if artifact.get('filename') == filename and re.fullmatch('[a-f0-9]{64}', artifact.get('sha256', '')):
@@ -51,7 +51,7 @@ for release in json.load(open(sys.argv[1])):
 raise SystemExit('Pinned Go archive is missing from the official HTTPS manifest')
 PY
     curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL --retry 3 --max-time 240 --max-filesize 268435456 \
-      "https://go.dev/dl/go1.27.2.linux-$arch.tar.gz" -o "$tools/go.tar.gz"
+      "https://go.dev/dl/go1.27.3.linux-$arch.tar.gz" -o "$tools/go.tar.gz"
     (cd "$tools" && sha256sum -c go.sha256 && tar -xzf go.tar.gz)
     stage='installing GitHub CLI with attestation verification support'
     # Ubuntu 24.04's base CLI predates gh attestation verify. Pin the official
