@@ -51,7 +51,7 @@ for arch in x86_64 aarch64; do
   gpg --batch --verify "$assets/$package.sig" "$assets/$package"
   copy_immutable "$assets/$package" "$arch_dir/$package"
   copy_immutable "$assets/$package.sig" "$arch_dir/$package.sig"
-  (cd "$arch_dir" && repo-add --include-sigs --prevent-downgrade lasa.db.tar.gz "$package")
+  bash "$(dirname "$0")/build-arch-database.sh" "$arch_dir" "$package"
   # Pages/git preserve regular files reliably; replace repo-add's short aliases.
   rm -f "$arch_dir/lasa.db" "$arch_dir/lasa.files"
   cp "$arch_dir/lasa.db.tar.gz" "$arch_dir/lasa.db"
