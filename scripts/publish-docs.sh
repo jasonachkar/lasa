@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 umask 077
+python_command=${PYTHON:-python3}
 version=${1:?Usage: publish-docs.sh VERSION}
 # Accept the old command argument without exposing the old product label.
 if [ "$version" = preview ]; then version=current; fi
@@ -27,14 +28,14 @@ touch .nojekyll
 git add .nojekyll
 if ! git diff --cached --quiet; then git commit -m 'Serve generated LASA documentation without Jekyll'; fi
 if ! git show "$DISTRIBUTION_BRANCH:versions.json" > "$temp/versions.json" 2>/dev/null; then printf '[]\n' > "$temp/versions.json"; fi
-alias=$(python "$root/scripts/check-docs-version.py" "$version" "$temp/versions.json")
-python "$root/scripts/prepare-docs.py"
+alias=$("$python_command" "$root/scripts/check-docs-version.py" "$version" "$temp/versions.json")
+"$python_command" "$root/scripts/prepare-docs.py"
 # Mike updates the branch tree directly and preserves apt/, Formula/, CNAME,
 # .nojekyll and all previously published documentation versions.
 # Migrate the previous documentation channel out of the selector, preserving
 # bookmarked URLs as redirects. All changes become visible in one Git push.
 legacy=false
-if python - "$temp/versions.json" <<'PYINDEX'
+if "$python_command" - "$temp/versions.json" <<'PYINDEX'
 import json, sys
 sys.exit(0 if any(item["version"] == "preview" for item in json.load(open(sys.argv[1]))) else 1)
 PYINDEX

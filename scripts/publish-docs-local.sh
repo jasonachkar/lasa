@@ -14,7 +14,8 @@ brew list --versions python@3.12 >/dev/null || brew install python@3.12
 "$(brew --prefix python@3.12)/bin/python3.12" -m venv .build/docs-venv
 # shellcheck disable=SC1091
 source .build/docs-venv/bin/activate
-python -m pip install --disable-pip-version-check -r requirements-docs.txt
+export PYTHON="$PWD/.build/docs-venv/bin/python3"
+"$PYTHON" -m pip install --disable-pip-version-check -r requirements-docs.txt
 export DISTRIBUTION_REPOSITORY=jasonachkar/homebrew-lasa
 export DISTRIBUTION_BRANCH
 DISTRIBUTION_BRANCH=$(gh api "repos/$DISTRIBUTION_REPOSITORY" --jq .default_branch)

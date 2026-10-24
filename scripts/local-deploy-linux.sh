@@ -14,6 +14,7 @@ fi
 source /etc/os-release
 [[ $ID == ubuntu && $VERSION_ID == 24.04 ]] || { echo 'The local publisher requires its Ubuntu 24.04 guest.' >&2; exit 1; }
 tools=/opt/lasa-local-tools
+docs_python="$tools/docs-venv/bin/python3"
 case "$1" in
   prepare)
     test "$(id -u)" = 0 || { echo 'VM preparation requires sudo inside the guest.' >&2; exit 1; }
@@ -68,19 +69,23 @@ PY
     (cd "$tools" && sha256sum -c gh.sha256 && tar -xzf "$gh_archive")
     ln -s "$tools/gh_${gh_version}_linux_${arch}/bin/gh" "$tools/bin/gh"
     stage='installing pinned documentation dependencies'
-    python3 -m venv "$tools/docs-venv"
-    "$tools/docs-venv/bin/python" -m pip install --disable-pip-version-check -r requirements-docs.txt
+    bash scripts/install-public-docs-venv.sh "$tools/docs-venv" requirements-docs.txt
+    stage='checking documentation tools as the ordinary publisher user'
+    sudo -u ubuntu -- bash "$PWD/scripts/check-docs-environment.sh" "$docs_python"
     ;;
   verify)
     test "$(id -u)" != 0 || { echo 'Verification runs as the guest user, before owner credentials arrive.' >&2; exit 1; }
-    export PATH="$tools/bin:$tools/go/bin:$tools/docs-venv/bin:$PATH" GOTOOLCHAIN=local VERSION=0.0.0
+    export PATH="$tools/docs-venv/bin:$tools/bin:$tools/go/bin:$PATH" GOTOOLCHAIN=local VERSION=0.0.0
+    export PYTHON="$docs_python" VIRTUAL_ENV="$tools/docs-venv"
+    stage='checking the prepared Python environment'
+    bash scripts/check-docs-environment.sh "$PYTHON"
     go_path=$(go env GOPATH)
     export PATH="$go_path/bin:$PATH"
     case "$(uname -m)" in aarch64|arm64) export LASA_TEST_EMULATED_AMD64=1;; esac
     stage='verification and reproducibility'
     make tools
     make check fuzz reproducible packages
-    python -m unittest discover -s test -p 'test_*.py'
+    "$PYTHON" -m unittest discover -s test -p 'test_*.py'
     bash test/docs.sh
     bash test/bootstrap-distribution.sh
     bash test/versioning.sh
@@ -90,7 +95,7 @@ PY
     shellcheck scripts/*.sh test/*.sh
     git diff --exit-code
     test -z "$(git status --porcelain)"
-    python - <<'PY'
+    "$PYTHON" - <<'PY'
 import json, pathlib, platform, subprocess
 pathlib.Path('.build').mkdir(exist_ok=True)
 pathlib.Path('.build/local-verification.json').write_text(json.dumps({
@@ -104,9 +109,11 @@ PY
   publish)
     test "$(id -u)" != 0 || { echo 'Publication runs as the guest user.' >&2; exit 1; }
     stage='publishing verified artifacts'
-    export PATH="$tools/bin:$tools/go/bin:$tools/docs-venv/bin:$PATH" GOTOOLCHAIN=local
+    export PATH="$tools/docs-venv/bin:$tools/bin:$tools/go/bin:$PATH" GOTOOLCHAIN=local
+    export PYTHON="$docs_python" VIRTUAL_ENV="$tools/docs-venv"
+    bash scripts/check-docs-environment.sh "$PYTHON"
     go_path=$(go env GOPATH)
     export PATH="$go_path/bin:$PATH"
-    python scripts/local-release.py /home/ubuntu/.lasa-local/credentials.json
+    "$PYTHON" scripts/local-release.py /home/ubuntu/.lasa-local/credentials.json
     ;;
 esac
