@@ -4,9 +4,9 @@
 
 ## GitHub Actions quota exhausted
 
-Use [Azure publishing and website recovery](azure.md). `bash scripts/bootstrap-azure.sh` automates the private Azure project and pipeline setup for `jasonachkardiab`. `bash scripts/publish-docs-local.sh` immediately publishes MkDocs from your Mac without source Actions minutes. Both reuse the existing signing/deploy state; do not reset keys.
+Use [full local deployment](local-deployment.md): `bash scripts/deploy-local.sh` builds, verifies, signs and publishes from a disposable Linux VM on your Mac using the existing private state. It selects local publishing and requires no Azure account or GitHub Actions build runner. `bash scripts/publish-docs-local.sh` remains the faster docs-only command. [Azure publishing](azure.md) is an optional alternative. Existing signing/deploy keys are reused.
 
-## One command
+## GitHub Actions bootstrap
 
 Run this from a clean checkout containing the publishing changes, after its commit has been pushed:
 
@@ -17,6 +17,8 @@ bash scripts/bootstrap-distribution.sh
 The default source is `jasonachkar/lasa`; the generated public repository is `jasonachkar/homebrew-lasa`. The command creates a real release of the **current commit**, using an automatically calculated semantic version. Review that commit before running it. It does not merge your branch into main. You can publish a pushed feature commit because the tag-triggered workflow comes from the tagged commit.
 
 No Linux computer, Docker, Go installation, hand-written workflow configuration, manually generated signing key, pasted access token, hand-created tag or manually uploaded package is needed on the Mac. Intel and Apple Silicon Macs use the same script, including Apple's Bash 3.2. Linux publishing runners do all compilation and indexing.
+
+This bootstrap's release mode uses GitHub Actions and its available capacity. The local deployment command above is the complete manual alternative. `bootstrap-distribution.sh --configure-only` prepares initial publishing state without launching a release.
 
 For a fresh local copy of this branch:
 

@@ -10,6 +10,7 @@ if [ "$version" = preview ]; then version=current; fi
 : "${DISTRIBUTION_DEPLOY_KEY:?Missing deploy key secret}"
 [[ $DISTRIBUTION_REPOSITORY =~ ^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$ ]] || exit 1
 root=$(cd "$(dirname "$0")/.." && pwd)
+if [ -n "${LASA_RELEASE_PROVIDER:-}" ]; then bash "$root/scripts/check-publisher.sh" "$LASA_RELEASE_PROVIDER"; fi
 temp=$(mktemp -d)
 trap 'rm -rf "$temp"' EXIT
 printf '%s\n' "$DISTRIBUTION_DEPLOY_KEY" > "$temp/key"
@@ -48,6 +49,7 @@ if [ "$legacy" = true ]; then
   mike alias --config-file "$root/mkdocs.yml" --branch "$DISTRIBUTION_BRANCH" --remote origin --alias-type redirect --update-aliases "$version" preview
 fi
 mike set-default --config-file "$root/mkdocs.yml" --branch "$DISTRIBUTION_BRANCH" --remote origin latest
+if [ -n "${LASA_RELEASE_PROVIDER:-}" ]; then bash "$root/scripts/check-publisher.sh" "$LASA_RELEASE_PROVIDER"; fi
 git push origin "$DISTRIBUTION_BRANCH:$DISTRIBUTION_BRANCH"
 # Verify deployment, not just the Git push. Use Pages' effective domain/base URL.
 pages_url=${DOCS_SITE_URL:-https://${DISTRIBUTION_REPOSITORY%/*}.github.io/${DISTRIBUTION_REPOSITORY#*/}/}

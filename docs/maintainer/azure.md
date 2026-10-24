@@ -4,6 +4,8 @@
 
 ## Start from the Mac
 
+For a complete release without Azure or GitHub Actions build runners, use [local deployment](local-deployment.md). The steps below describe the optional Azure provider.
+
 From a clean, pushed checkout containing these files:
 
 ```bash

@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   version:
-    if: vars.PUBLISHING_PROVIDER != 'azure' && vars.DISTRIBUTION_REPOSITORY != ''
+    if: vars.PUBLISHING_PROVIDER != 'azure' && vars.PUBLISHING_PROVIDER != 'local' && vars.DISTRIBUTION_REPOSITORY != ''
     runs-on: ubuntu-24.04
     permissions:
       contents: write

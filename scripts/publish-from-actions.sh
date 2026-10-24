@@ -14,6 +14,7 @@ trap 'printf "Package publication failed at line %s. See the preceding command e
 : "${APT_SIGNING_FINGERPRINT:?Missing signing fingerprint variable}"
 : "${APT_REPOSITORY_URL:?Missing APT repository URL}"
 [[ $DISTRIBUTION_REPOSITORY =~ ^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$ ]] || exit 1
+if [ -n "${LASA_RELEASE_PROVIDER:-}" ]; then bash scripts/check-publisher.sh "$LASA_RELEASE_PROVIDER"; fi
 temp=$(mktemp -d "$RUNNER_TEMP/lasa-publish.XXXXXX")
 export GNUPGHOME="$temp/gnupg"
 mkdir -m 0700 "$GNUPGHOME"
@@ -39,6 +40,7 @@ git -C "$temp/site" config user.email '41898282+github-actions[bot]@users.norepl
 git -C "$temp/site" add .
 if ! git -C "$temp/site" diff --cached --quiet; then
   git -C "$temp/site" commit -m "Publish LASA $RELEASE_TAG packages"
+  if [ -n "${LASA_RELEASE_PROVIDER:-}" ]; then bash scripts/check-publisher.sh "$LASA_RELEASE_PROVIDER"; fi
   git -C "$temp/site" push origin "HEAD:$DISTRIBUTION_BRANCH"
 fi
 # A successful push alone does not mean the packages are downloadable via Pages.

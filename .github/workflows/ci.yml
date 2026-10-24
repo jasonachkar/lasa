@@ -6,6 +6,7 @@ permissions:
   contents: read
 jobs:
   checks:
+    if: vars.PUBLISHING_PROVIDER != 'local'
     env:
       VERSION: '0.0.0'
     strategy:
@@ -33,7 +34,7 @@ jobs:
           bash test/domain.sh
           bash test/bootstrap-distribution.sh
           python3 -m unittest discover -s test -p 'test_*.py'
-          shellcheck test/linux-package-managers.sh scripts/install-packaging-tools.sh scripts/package-linux-formats.sh scripts/prepare-apk-key.sh scripts/write-release-manifest.sh scripts/build-signed-packages.sh scripts/publish-linux-repositories.sh scripts/install-linux-body.sh scripts/validate-on-mac.sh scripts/validate-linux-vm.sh scripts/validate-network-namespace.sh scripts/validate-isolation.sh scripts/validate-disk-pressure.sh scripts/repair-docs-https.sh scripts/bootstrap-azure.sh scripts/publish-docs-local.sh scripts/release-from-azure.sh scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-from-actions.sh scripts/publish-docs.sh scripts/install-apt-body.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh
+          shellcheck scripts/*.sh test/*.sh
       - name: Real container view smoke test
         run: |
           version=$(make -s print-version)
@@ -43,6 +44,7 @@ jobs:
           docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges lasa-ci scan --profile container --format json > container-report.json
           ./bin/lasa report --input container-report.json --format html --output container-report.html
   bpf-build:
+    if: vars.PUBLISHING_PROVIDER != 'local'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -56,6 +58,7 @@ jobs:
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e GOPATH=/tmp/go -v "$PWD:/src" -v "$(go env GOROOT):/opt/go:ro" lasa-bpf
           git diff --exit-code -- internal/collector/ebpf/sensor_bpfel.go internal/collector/ebpf/sensor_bpfel.o
   macos-publishing-bootstrap:
+    if: vars.PUBLISHING_PROVIDER != 'local'
     runs-on: macos-14
     timeout-minutes: 15
     steps:

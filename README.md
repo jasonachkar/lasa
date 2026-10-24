@@ -8,7 +8,7 @@ LASA analyzes local evidence without exploit tests or enforcement changes. The d
 
 ## Quickstart
 
-Package and documentation publishing can be bootstrapped from macOS with `bash scripts/bootstrap-distribution.sh`. See [automated publishing](docs/maintainer/publishing.md) for GitHub/GoDaddy authorization, signing, automatic versions and recovery. The MkDocs customer site targets **https://lasa.secureobs.com**; it and package installation become available after bootstrap and the release workflow complete. Scanning still requires a Linux target.
+Maintainers with the existing publishing keys/configuration can deploy the full release from macOS with `bash scripts/deploy-local.sh`. It builds, verifies and signs in a disposable local Linux VM, then publishes packages and MkDocs without Azure or GitHub Actions build runners. See [local deployment](docs/maintainer/local-deployment.md) for prerequisites, automatic versions and recovery. Initial GitHub/GoDaddy setup remains documented in [publishing](docs/maintainer/publishing.md). The customer site targets **https://lasa.secureobs.com**; downloads become available after a successful publication. Scanning requires a Linux target.
 
 After the signed repositories have been published, configure a Linux target once:
 

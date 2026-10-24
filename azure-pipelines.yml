@@ -35,6 +35,8 @@ stages:
               DISTRIBUTION_BRANCH: $(DISTRIBUTION_BRANCH)
               DISTRIBUTION_DEPLOY_KEY: $(DISTRIBUTION_DEPLOY_KEY)
               DOCS_SITE_URL: $(DOCS_SITE_URL)
+              LASA_RELEASE_PROVIDER: azure
+              GITHUB_REPOSITORY: jasonachkar/lasa
           - task: GoTool@0
             inputs:
               version: '1.27.2'

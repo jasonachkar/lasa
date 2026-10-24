@@ -88,7 +88,7 @@ This command installs the binary; the scanner itself never invokes sudo. Do not 
 
 GitHub Actions releases carry a GitHub build attestation. Verify the downloaded checksum manifest using `gh attestation verify SHA256SUMS --repo jasonachkar/lasa`, then run `sha256sum --strict -c SHA256SUMS` in the directory containing all listed assets.
 
-Azure releases instead provide `SHA256SUMS.asc` and `release-signing-key.asc`. They use an OpenPGP signature by the APT signing key; this is not a GitHub OIDC build attestation. Import the public key into a dedicated verification keyring, confirm its full primary fingerprint against your organization's trusted LASA signing fingerprint, verify `gpg --verify SHA256SUMS.asc SHA256SUMS`, and check the manifest hashes before installing. A key downloaded alongside a binary is not independently trusted. A valid signature proves control of the signing key, not that the builder was uncompromised.
+Locally built and Azure releases instead provide `SHA256SUMS.asc` and `release-signing-key.asc`. They use an OpenPGP signature by the APT signing key; this is not a GitHub OIDC build attestation. Import the public key into a dedicated verification keyring, confirm its full primary fingerprint against your organization's trusted LASA signing fingerprint, verify `gpg --verify SHA256SUMS.asc SHA256SUMS`, and check the manifest hashes before installing. A key downloaded alongside a binary is not independently trusted. A valid signature proves control of the signing key, not that the builder was uncompromised.
 
 Native package managers verify the configured repository/package trust chain automatically. Homebrew checks the archive hash pinned in its formula. Release provenance verification is an additional check for direct downloads.
 

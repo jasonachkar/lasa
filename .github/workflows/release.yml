@@ -11,7 +11,7 @@ permissions:
   contents: read
 jobs:
   release:
-    if: vars.PUBLISHING_PROVIDER != 'azure'
+    if: vars.PUBLISHING_PROVIDER != 'azure' && vars.PUBLISHING_PROVIDER != 'local'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     environment: release
