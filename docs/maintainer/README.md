@@ -32,3 +32,4 @@ Every exported contract has its own version. Keep customer-facing descriptions a
 
 - [Native Linux package formats, repositories and signing](linux-distribution.md)
 - [Full manual deployment from a Mac using a disposable local Linux publisher](local-deployment.md)
+- [Local deployment review: architecture selection, failure boundaries and validation scope](deployment-review.md)

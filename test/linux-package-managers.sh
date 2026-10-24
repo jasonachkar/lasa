@@ -8,24 +8,13 @@ next_version=${4:-$version}
 next_site=$(cd "$next_site" && pwd)
 site=$(cd "$site" && pwd)
 installer=$(cd "$(dirname "$0")/../scripts" && pwd)/install-linux-body.sh
-case "$(uname -m)" in
-  x86_64) ;;
-  aarch64|arm64)
-    if [ "${LASA_TEST_EMULATED_AMD64:-}" != 1 ] || ! grep -qx enabled /proc/sys/fs/binfmt_misc/qemu-x86_64 || ! grep -Eq '^flags:.*F' /proc/sys/fs/binfmt_misc/qemu-x86_64; then
-      echo 'AMD64 package-client fixtures on ARM64 require explicit emulation and a registered static QEMU handler.' >&2
-      exit 1
-    fi
-    echo 'Package-client matrix: emulated AMD64 on ARM64; this does not establish native ARM64 package-client compatibility.'
-    ;;
-  *) echo 'This package-client matrix requires AMD64 or explicitly enabled ARM64 emulation.' >&2; exit 1;;
-esac
-fedora=fedora:43@sha256:a651ddf48ea28a06ed4e1e6519f51c9f47e7a5a138722ade87369b8fbb7e5b42
-suse=opensuse/leap:15.6@sha256:79be7751205ea84559990fb76b1bec71e38d6fad41c70a4f6c921b803b58f421
-arch=archlinux:base@sha256:52dfbd5afb23a220d5ee92dafcb4c788d96c026ed04179890c23adef4c897fa0
-alpine=alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f
-for image in "$fedora" "$suse" "$arch" "$alpine"; do
-  docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"
-done
+# shellcheck source=scripts/package-containers.sh
+source "$(dirname "$0")/../scripts/package-containers.sh"
+lasa_check_package_containers
+fedora=$lasa_container_fedora
+suse=$lasa_container_suse
+arch=$lasa_container_arch
+alpine=$lasa_container_alpine
 # Only public signed repository content is mounted. Private fixture keys stay outside.
 docker run --platform linux/amd64 --rm --network none --cap-drop ALL --cap-add DAC_OVERRIDE --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges -v "$installer:/installer.sh:ro" -v "$site:/lasa:ro" -v "$next_site:/lasa-next:ro" "$fedora" bash -euc '
   test "$(sh /installer.sh --detect)" = "dnf x86_64"

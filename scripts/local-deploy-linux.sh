@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Runs only inside the disposable Ubuntu publisher created by deploy-local.py.
-set -euo pipefail
+set -Eeuo pipefail
 umask 077
 stage=initialization
 trap 'printf "Local Linux publisher failed during %s (line %s).\n" "$stage" "$LINENO" >&2' ERR
+verification_step() {
+  stage=$1
+  shift
+  printf 'Local verification: %s\n' "$stage"
+  "$@"
+}
 cd "$(dirname "$0")/.."
 [[ $# = 1 && $1 =~ ^(prepare|verify|publish)$ ]] || { echo 'Usage: local-deploy-linux.sh prepare|verify|publish' >&2; exit 1; }
 if [ "$(uname -s)" != Linux ] || ! systemd-detect-virt --vm >/dev/null; then
@@ -33,8 +39,16 @@ case "$1" in
       x86_64) arch=amd64;;
       aarch64|arm64)
         arch=arm64
-        apt-get install -y --no-install-recommends qemu-user-static binfmt-support
-        update-binfmts --enable qemu-x86_64
+        stage='registering static AMD64 emulation in the ARM64 guest'
+        apt-get install -y --no-install-recommends qemu-user-static
+        # Ubuntu 24.04 ships systemd binfmt.d rules (OPF), rather than a
+        # qemu-x86_64 entry managed by the legacy update-binfmts database.
+        test -s /usr/lib/binfmt.d/qemu-x86_64.conf || { echo 'The Ubuntu QEMU package lacks its AMD64 binfmt rule.' >&2; exit 1; }
+        systemctl restart systemd-binfmt.service
+        if ! grep -qx enabled /proc/sys/fs/binfmt_misc/qemu-x86_64 || ! grep -Eq '^flags:.*F' /proc/sys/fs/binfmt_misc/qemu-x86_64; then
+          echo 'Static AMD64 emulation was not registered with the required fix-binary (F) flag; check the guest systemd-binfmt service.' >&2
+          exit 1
+        fi
         ;;
       *) echo 'The publisher supports AMD64 and ARM64 guests.' >&2; exit 1;;
     esac
@@ -75,6 +89,8 @@ PY
     ;;
   verify)
     test "$(id -u)" != 0 || { echo 'Verification runs as the guest user, before owner credentials arrive.' >&2; exit 1; }
+    stage='invalidating previous verification approval'
+    rm -f .build/local-verification.json
     export PATH="$tools/docs-venv/bin:$tools/bin:$tools/go/bin:$PATH" GOTOOLCHAIN=local VERSION=0.0.0
     export PYTHON="$docs_python" VIRTUAL_ENV="$tools/docs-venv"
     stage='checking the prepared Python environment'
@@ -82,18 +98,24 @@ PY
     go_path=$(go env GOPATH)
     export PATH="$go_path/bin:$PATH"
     case "$(uname -m)" in aarch64|arm64) export LASA_TEST_EMULATED_AMD64=1;; esac
-    stage='verification and reproducibility'
-    make tools
-    make check fuzz reproducible packages
-    "$PYTHON" -m unittest discover -s test -p 'test_*.py'
-    bash test/docs.sh
-    bash test/bootstrap-distribution.sh
-    bash test/versioning.sh
-    bash test/domain.sh
-    bash test/release-provenance.sh
-    bash test/distribution.sh
-    shellcheck scripts/*.sh test/*.sh
-    git diff --exit-code
+    # Fail on platform/registry/emulator problems before long compilation or any
+    # owner credential transfer. Never reuse a successful record after a failure.
+    verification_step 'package container platforms and execution' bash scripts/package-containers.sh
+    verification_step 'guest verification failure boundaries' bash test/local-deploy-worker.sh
+    verification_step 'installing pinned Go verification tools' make tools
+    verification_step 'Go checks and current vulnerability scan' make check
+    verification_step 'bounded parser fuzzing' make fuzz
+    verification_step 'reproducible release binaries' make reproducible
+    verification_step 'release package generation' make packages
+    verification_step 'Python deployment and signing tests' "$PYTHON" -m unittest discover -s test -p 'test_*.py'
+    verification_step 'documentation build and preservation' bash test/docs.sh
+    verification_step 'distribution bootstrap and key preservation' bash test/bootstrap-distribution.sh
+    verification_step 'automatic release versioning' bash test/versioning.sh
+    verification_step 'documentation domain configuration' bash test/domain.sh
+    verification_step 'release provenance and tamper rejection' bash test/release-provenance.sh
+    verification_step 'signed repositories and package-client install/upgrade/tamper checks' bash test/distribution.sh
+    verification_step 'shell lint' shellcheck scripts/*.sh test/*.sh
+    verification_step 'source tree integrity' git diff --exit-code
     test -z "$(git status --porcelain)"
     "$PYTHON" - <<'PY'
 import json, pathlib, platform, subprocess
