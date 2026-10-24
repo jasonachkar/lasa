@@ -14,7 +14,7 @@ for arch in x86_64 aarch64; do
     test -s "$assets/$filename" || { echo "Release $version lacks $filename. Publish a new version with the native package pipeline; existing published releases are immutable." >&2; exit 1; }
   done
 done
-for tool in createrepo_c repo-add bsdtar docker rpmkeys rpmdb python3 openssl; do command -v "$tool" >/dev/null || { echo "Missing repository tool: $tool" >&2; exit 1; }; done
+for tool in createrepo_c repo-add bsdtar docker timeout rpmkeys rpmdb python3 openssl; do command -v "$tool" >/dev/null || { echo "Missing repository tool: $tool" >&2; exit 1; }; done
 [[ $APK_PUBLIC_KEY_SHA256 =~ ^[a-f0-9]{64}$ ]] || exit 1
 # shellcheck source=scripts/package-containers.sh
 source "$(dirname "$0")/package-containers.sh"
@@ -63,9 +63,9 @@ for arch in x86_64 aarch64; do
   done
   copy_immutable "$assets/lasa-$version-r1-$arch.apk" "$apk_dir/lasa-$version-r1.apk"
   # apk's arch name for ARM64 is aarch64. Verify signed inputs using the pinned key.
-  docker run --platform "$native_platform" --rm --network none --cap-drop ALL --security-opt no-new-privileges --read-only --user "$(id -u):$(id -g)" \
+  bash "$(dirname "$0")/run-package-container.sh" 60 "Alpine $arch package signature verification" --platform "$native_platform" --network none --cap-drop ALL --security-opt no-new-privileges --read-only --user "$(id -u):$(id -g)" \
     -v "$site/apk:/repo:ro" -v "$site/keys:/keys:ro" "$image" apk --keys-dir /keys --arch "$arch" verify "/repo/$arch/lasa-$version-r1.apk"
-  docker run --platform "$native_platform" --rm --network none --cap-drop ALL --security-opt no-new-privileges --read-only --user "$(id -u):$(id -g)" \
+  bash "$(dirname "$0")/run-package-container.sh" 60 "Alpine $arch repository index generation" --platform "$native_platform" --network none --cap-drop ALL --security-opt no-new-privileges --read-only --user "$(id -u):$(id -g)" \
     -v "$apk_dir:/repo:rw" "$image" sh -ec 'apk --arch "$1" index --allow-untrusted --output /repo/APKINDEX.tar.gz /repo/*.apk' _ "$arch"
   python3 "$(dirname "$0")/sign-apk.py" "$apk_dir/APKINDEX.tar.gz" "$temp/alpine.pem"
 done

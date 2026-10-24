@@ -37,19 +37,7 @@ case "$1" in
     chmod 0755 "$tools/bin/docker"
     case "$(uname -m)" in
       x86_64) arch=amd64;;
-      aarch64|arm64)
-        arch=arm64
-        stage='registering static AMD64 emulation in the ARM64 guest'
-        apt-get install -y --no-install-recommends qemu-user-static
-        # Ubuntu 24.04 ships systemd binfmt.d rules (OPF), rather than a
-        # qemu-x86_64 entry managed by the legacy update-binfmts database.
-        test -s /usr/lib/binfmt.d/qemu-x86_64.conf || { echo 'The Ubuntu QEMU package lacks its AMD64 binfmt rule.' >&2; exit 1; }
-        systemctl restart systemd-binfmt.service
-        if ! grep -qx enabled /proc/sys/fs/binfmt_misc/qemu-x86_64 || ! grep -Eq '^flags:.*F' /proc/sys/fs/binfmt_misc/qemu-x86_64; then
-          echo 'Static AMD64 emulation was not registered with the required fix-binary (F) flag; check the guest systemd-binfmt service.' >&2
-          exit 1
-        fi
-        ;;
+      aarch64|arm64) arch=arm64;;
       *) echo 'The publisher supports AMD64 and ARM64 guests.' >&2; exit 1;;
     esac
     stage='installing checksum-verified Go 1.27.3'
@@ -97,8 +85,7 @@ PY
     bash scripts/check-docs-environment.sh "$PYTHON"
     go_path=$(go env GOPATH)
     export PATH="$go_path/bin:$PATH"
-    case "$(uname -m)" in aarch64|arm64) export LASA_TEST_EMULATED_AMD64=1;; esac
-    # Fail on platform/registry/emulator problems before long compilation or any
+    # Fail on platform/registry problems before long compilation or any
     # owner credential transfer. Never reuse a successful record after a failure.
     verification_step 'package container platforms and execution' bash scripts/package-containers.sh
     verification_step 'guest verification failure boundaries' bash test/local-deploy-worker.sh
@@ -124,7 +111,7 @@ pathlib.Path('.build/local-verification.json').write_text(json.dumps({
     'schema': 'lasa.local-verification/v1', 'verified': True,
     'source_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
     'architecture': platform.machine(),
-    'package_clients': 'native AMD64' if platform.machine() == 'x86_64' else 'emulated AMD64; not native ARM64 validation',
+    'package_clients': 'native AMD64' if platform.machine() == 'x86_64' else 'native ARM64 Fedora/openSUSE/Alpine; Ubuntu Pacman protocol fixture, not Arch distribution certification',
 }) + '\n')
 PY
     ;;

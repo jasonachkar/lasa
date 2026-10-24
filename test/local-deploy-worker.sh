@@ -45,7 +45,7 @@ chmod 0755 "$temp/tools/bin/"*
 for step in docs containers check; do
   printf stale > "$temp/source/.build/local-verification.json"
   : > "$temp/source/commands"
-  if docker run --platform "$platform" --rm --network none --cap-drop ALL --security-opt no-new-privileges --read-only \
+  if bash "$root/scripts/run-package-container.sh" 30 "Ubuntu worker failure boundary: $step" --platform "$platform" --network none --cap-drop ALL --security-opt no-new-privileges --read-only \
     --user "$(id -u):$(id -g)" --env "FAIL_STEP=$step" --env PATH=/opt/lasa-local-tools/bin:/usr/bin:/bin \
     -v "$temp/tools:/opt/lasa-local-tools:ro" -v "$temp/source:/home/ubuntu/lasa:rw" \
     "$image" bash /home/ubuntu/lasa/scripts/local-deploy-linux.sh verify > "$temp/output" 2>&1; then
