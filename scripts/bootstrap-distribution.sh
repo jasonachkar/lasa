@@ -7,23 +7,21 @@ trap 'printf "LASA setup failed during %s (line %s). See the error above. No bra
 die() { printf '%s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'EOF'
-Usage: bash scripts/bootstrap-distribution.sh [--configure-only] [--repo OWNER/REPO] [--distribution-repo OWNER/REPO]
+Usage: bash scripts/bootstrap-distribution.sh [--configure-domain] [--repo OWNER/REPO] [--distribution-repo OWNER/REPO]
 
-Installs missing publishing tools, authenticates with GitHub, creates a public
-distribution repository, generates local signing/deploy keys, configures GitHub
-secrets/variables and Pages, then tags this clean, already-pushed checkout and
-waits for its release. Existing tags are never moved. No source branch is merged.
---configure-only configures publishing without creating a tag or a release.
-GitHub/macOS may require interactive account or administrator consent.
+Prepares a public package repository, the existing GitHub release environment,
+its signing/deploy keys and GitHub Pages. The GitHub CLI must be logged in.
+--configure-domain also configures the requested custom domain.
 EOF
 }
 repo=jasonachkar/lasa
 distribution=
-configure_only=false
+configure_domain=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --help|-h) usage; exit 0;;
-    --configure-only) configure_only=true; shift;;
+    --configure-only) shift;; # Accepted for callers of earlier versions.
+    --configure-domain) configure_domain=true; shift;;
     --repo) [ "$#" -ge 2 ] || die '--repo needs OWNER/REPO'; repo=$2; shift 2;;
     --distribution-repo) [ "$#" -ge 2 ] || die '--distribution-repo needs OWNER/REPO'; distribution=$2; shift 2;;
     *) die "Unknown argument: $1 (see --help)";;
@@ -36,67 +34,15 @@ distribution=${distribution:-${repo%/*}/homebrew-lasa}
 cd "$(dirname "$0")/.."
 git rev-parse --show-toplevel >/dev/null
 [[ -z $(git status --porcelain) ]] || die 'Checkout has uncommitted changes. Commit and push the intended release before running setup.'
-commit=$(git rev-parse HEAD)
-stage='installing publishing tools'
+stage='checking publishing tools and GitHub access'
 case "$(uname -s)" in
-  Darwin)
-    for prefix in /opt/homebrew /usr/local; do
-      if [ -x "$prefix/bin/brew" ]; then export PATH="$prefix/bin:$PATH"; break; fi
-    done
-    if ! command -v gh >/dev/null || ! command -v gpg >/dev/null || ! command -v jq >/dev/null; then
-      if ! command -v brew >/dev/null; then
-        # Fetch the official installer at a reviewed immutable Git commit.
-        installer=$(mktemp -d)
-        git clone --quiet https://github.com/Homebrew/install.git "$installer/install"
-        git -C "$installer/install" checkout --quiet be041513824fd2666a0e93cf5c3b0ca3bb0eb4b6
-        /bin/bash "$installer/install/install.sh"
-        rm -rf "$installer"
-        case "$(uname -m)" in arm64) export PATH="/opt/homebrew/bin:$PATH";; *) export PATH="/usr/local/bin:$PATH";; esac
-      fi
-      command -v gh >/dev/null || brew install gh
-      command -v gpg >/dev/null || brew install gnupg
-      command -v jq >/dev/null || brew install jq
-    fi
-    state_base="$HOME/Library/Application Support/lasa-distribution"
-    ;;
-  Linux)
-    if ! command -v gh >/dev/null || ! command -v gpg >/dev/null || ! command -v jq >/dev/null; then
-      command -v apt-get >/dev/null || die 'Automatic Linux tool installation needs Debian/Ubuntu. On this distribution, provide gh and gpg, or run this script on macOS.'
-      sudo_cmd=()
-      if [ "$(id -u)" != 0 ]; then sudo_cmd=(sudo); fi
-      "${sudo_cmd[@]}" apt-get update -o APT::Update::Error-Mode=any
-      "${sudo_cmd[@]}" apt-get install -y gh gnupg jq ca-certificates openssh-client
-    fi
-    state_base="${XDG_STATE_HOME:-$HOME/.local/state}/lasa-distribution"
-    ;;
+  Darwin) state_base="$HOME/Library/Application Support/lasa-distribution";;
+  Linux) state_base="${XDG_STATE_HOME:-$HOME/.local/state}/lasa-distribution";;
   *) die 'Publishing bootstrap supports macOS and Linux';;
 esac
 for tool in gh gpg jq ssh-keygen curl; do command -v "$tool" >/dev/null || die "Missing publishing tool: $tool"; done
-stage='GitHub authentication'
-if ! gh auth status --hostname github.com >/dev/null 2>&1; then
-  if [ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]; then
-    die 'The supplied GitHub token is unusable. Reauthenticate in your local shell; this script will not replace or print an injected token.'
-  fi
-  gh auth login --hostname github.com --git-protocol https --web --scopes repo,workflow
-fi
-# Failure here is an authorization/network error, never evidence to create a repo.
+gh auth status --hostname github.com >/dev/null 2>&1 || die 'Sign in to the GitHub CLI before configuring publishing.'
 gh api "repos/$repo" --jq .full_name >/dev/null
-gh api "repos/$repo/commits/$commit" --jq .sha >/dev/null || die 'This commit is not on GitHub. Push your branch first.'
-[[ $(gh api "repos/$repo/contents/.github/workflows/release.yml?ref=$commit" --jq .type) == file ]] || die 'This commit has no release workflow'
-stage='refreshing version history'
-fetch_options=(--tags --no-recurse-submodules)
-if [[ $(git rev-parse --is-shallow-repository) == true ]]; then fetch_options+=(--unshallow); fi
-git -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch "${fetch_options[@]}" "https://github.com/$repo.git" "$commit"
-version=$(bash scripts/next-version.sh "$commit")
-[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'Could not allocate a stable semantic version'
-tag="v$version"
-stage='checking release immutability'
-refs=$(gh api "repos/$repo/git/matching-refs/tags/$tag" --jq ".[] | select(.ref == \"refs/tags/$tag\") | .object.sha")
-if [ -n "$refs" ]; then
-  # Handles existing annotated tags too; /commits/TAG resolves the commit.
-  tagged_commit=$(gh api "repos/$repo/commits/$tag" --jq .sha)
-  [[ $tagged_commit == "$commit" ]] || die "$tag already identifies a different commit. Fetch current tags and rerun from the intended new release commit; existing versions are immutable."
-fi
 stage='creating the public package repository'
 owner=${distribution%/*}
 name=${distribution#*/}
@@ -128,13 +74,15 @@ fi
 rm -f "$environment_error"
 secrets=$(gh secret list --repo "$repo" --env release --json name --jq '.[].name')
 repository_secrets=$(gh secret list --repo "$repo" --json name --jq '.[].name')
-secrets=$(printf '%s\n%s\n' "$secrets" "$repository_secrets")
+if printf '%s\n' "$repository_secrets" | grep -Eq '^(APT_SIGNING_KEY|DISTRIBUTION_DEPLOY_KEY)$'; then
+  die 'Publishing credentials are present at repository scope. Review and migrate them before configuring environment secrets.'
+fi
 stage='generating and safeguarding local publishing keys'
 if [ ! -f "$state/signing-fingerprint" ]; then
   if printf '%s\n' "$secrets" | grep -qx APT_SIGNING_KEY; then
     die "APT_SIGNING_KEY exists on GitHub, but its local signing state is missing at $state. Restore that directory from your secure backup; automatic key rotation would break existing installations."
   fi
-  identity="LASA packages ($repo) <jasonachkardiab@gmail.com>"
+  identity="LASA packages ($repo)"
   existing=$(gpg --batch --list-secret-keys --with-colons "$identity" 2>/dev/null | awk -F: '$1=="fpr"{print $10;exit}' || true)
   if [ -z "$existing" ]; then
     gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key "$identity" rsa3072 sign 0
@@ -165,8 +113,12 @@ else
 fi
 stage='configuring GitHub Actions secrets and variables'
 # Private material goes through stdin, never command arguments or the checkout.
-gpg --batch --armor --export-secret-keys "$fingerprint" | gh secret set APT_SIGNING_KEY --repo "$repo" --env release
-gh secret set DISTRIBUTION_DEPLOY_KEY --repo "$repo" --env release < "$state/deploy-key"
+if ! printf '%s\n' "$secrets" | grep -qx APT_SIGNING_KEY; then
+  gpg --batch --armor --export-secret-keys "$fingerprint" | gh secret set APT_SIGNING_KEY --repo "$repo" --env release
+fi
+if ! printf '%s\n' "$secrets" | grep -qx DISTRIBUTION_DEPLOY_KEY; then
+  gh secret set DISTRIBUTION_DEPLOY_KEY --repo "$repo" --env release < "$state/deploy-key"
+fi
 gh variable set APT_SIGNING_FINGERPRINT --repo "$repo" --body "$fingerprint"
 gh variable set DISTRIBUTION_REPOSITORY --repo "$repo" --body "$distribution"
 gh variable set DISTRIBUTION_BRANCH --repo "$repo" --body "$branch"
@@ -182,30 +134,10 @@ else
   gh api --method POST "repos/$distribution/pages" -f build_type=legacy -f "source[branch]=$branch" -f 'source[path]=/' >/dev/null
 fi
 rm -f "$pages_error"
-printf 'Publishing configured. Private local state: %s\nAPT signing fingerprint: %s\n' "$state" "$fingerprint"
-if $configure_only; then echo 'Configuration complete; no release tag was created.'; exit 0; fi
-stage='configuring GoDaddy DNS and documentation HTTPS'
-bash scripts/configure-domain.sh "$distribution"
-gh variable set DOCS_SITE_URL --repo "$repo" --body 'https://lasa.secureobs.com/'
-gh variable set APT_REPOSITORY_URL --repo "$repo" --body 'https://lasa.secureobs.com/apt'
-apt_url=https://lasa.secureobs.com/apt
-stage="publishing $tag"
-if [ -z "$refs" ]; then
-  gh api --method POST "repos/$repo/git/refs" -f "ref=refs/tags/$tag" -f "sha=$commit" >/dev/null
+if $configure_domain; then
+  stage='configuring GoDaddy DNS and documentation HTTPS'
+  bash scripts/configure-domain.sh "$distribution"
+  gh variable set DOCS_SITE_URL --repo "$repo" --body 'https://lasa.secureobs.com/'
+  gh variable set APT_REPOSITORY_URL --repo "$repo" --body 'https://lasa.secureobs.com/apt'
 fi
-# Tag-triggered workflows work from this commit; no merge to main is required.
-run=
-for ((attempt=0; attempt<60; attempt++)); do
-  run=$(gh run list --repo "$repo" --commit "$commit" --event push --limit 100 --json databaseId,headBranch,workflowName --jq ".[] | select((.headBranch==\"$tag\" and .workflowName==\"Signed release\") or .workflowName==\"Automatic version and release\") | .databaseId" | head -n 1)
-  [ -z "$run" ] || break
-  sleep 5
-done
-[ -n "$run" ] || die "No release workflow appeared for $tag within five minutes. Check Actions policy at https://github.com/$repo/actions; the existing tag was preserved."
-conclusion=$(gh run view "$run" --repo "$repo" --json conclusion --jq .conclusion)
-case "$conclusion" in
-  failure|cancelled|timed_out) gh run rerun "$run" --repo "$repo" --failed;;
-esac
-if ! gh run watch "$run" --repo "$repo" --exit-status; then
-  die "Release workflow failed: https://github.com/$repo/actions/runs/$run . Fix the reported cause and rerun this script; it will preserve the tag and signing identity."
-fi
-printf 'Release: https://github.com/%s/releases/tag/%s\nAPT: %s\nLinux Homebrew: brew install %s/lasa/lasa\n' "$repo" "$tag" "$apt_url" "$owner"
+printf 'Publishing configured. APT signing fingerprint: %s\n' "$fingerprint"

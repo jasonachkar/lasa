@@ -4,7 +4,7 @@
 
 ## Toolchain and workspace
 
-Use supported Go **1.27.2**. Normal binaries use `CGO_ENABLED=0`, Linux AMD64/ARM64, trimmed paths and no build timestamp. Native Linux tests use the real kernel; a C compiler is required for Go's race detector. Keep Go checksum/TLS verification enabled. `go.mod` and `go.sum` pin modules; `tools/dependencies.allow` defines modules linked into the scanner binary.
+Use supported Go **1.27.4**. Normal binaries use `CGO_ENABLED=0`, Linux AMD64/ARM64, trimmed paths and no build timestamp. Native Linux tests use the real kernel; a C compiler is required for Go's race detector. Keep Go checksum/TLS verification enabled. `go.mod` and `go.sum` pin modules; `tools/dependencies.allow` defines modules linked into the scanner binary.
 
 Use the existing checkout in an isolated cloud task. Do not create an additional Git worktree unless requested. Retained binaries, dependencies and source files do not imply a daemon or BPF links will survive a task restart. Restart services explicitly using documented commands and verify their output.
 

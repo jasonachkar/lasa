@@ -1,0 +1,33 @@
+name: CodeQL
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '38 5 * * 2'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  analyze:
+    # Private repository code scanning requires a license. A private installation
+    # can enable this after confirming the entitlement in repository settings.
+    if: github.event.repository.visibility == 'public' || vars.LASA_PRIVATE_CODEQL == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          languages: go
+          build-mode: manual
+      - run: make build
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4

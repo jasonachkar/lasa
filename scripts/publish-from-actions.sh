@@ -15,9 +15,15 @@ trap 'printf "Package publication failed at line %s. See the preceding command e
 temp=$(mktemp -d "$RUNNER_TEMP/lasa-publish.XXXXXX")
 export GNUPGHOME="$temp/gnupg"
 mkdir -m 0700 "$GNUPGHOME"
-# shellcheck disable=SC2317 # Invoked by the EXIT trap, including failed commands.
+# shellcheck disable=SC2317,SC2329 # Invoked by the EXIT trap, including failed commands.
 cleanup() { gpgconf --kill gpg-agent || true; rm -rf "$temp"; }
 trap cleanup EXIT
+# Validate downloaded assets before importing signing material or opening the
+# SSH connection. A retry must authenticate the same source as a fresh release.
+mkdir -p "$temp/assets"
+gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$temp/assets"
+bash scripts/security/verify-release-attestation.sh "$temp/assets/SHA256SUMS"
+python3 scripts/security/verify-release-assets.py "$temp/assets" "${RELEASE_TAG#v}"
 printf '%s\n' "$APT_SIGNING_KEY" | gpg --batch --import
 printf '%s\n' "$DISTRIBUTION_DEPLOY_KEY" > "$temp/key"
 unset APT_SIGNING_KEY DISTRIBUTION_DEPLOY_KEY
@@ -28,10 +34,6 @@ test -s "$temp/known_hosts"
 printf -v GIT_SSH_COMMAND 'ssh -i %q -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=%q' "$temp/key" "$temp/known_hosts"
 export GIT_SSH_COMMAND
 git clone --single-branch --branch "$DISTRIBUTION_BRANCH" "git@github.com:$DISTRIBUTION_REPOSITORY.git" "$temp/site"
-mkdir -p "$temp/assets"
-gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$temp/assets"
-(cd "$temp/assets" && sha256sum --strict -c SHA256SUMS)
-gh attestation verify "$temp/assets/SHA256SUMS" --repo "$GITHUB_REPOSITORY"
 bash scripts/publish-distribution.sh "$temp/site" "$temp/assets" "${RELEASE_TAG#v}" "$GITHUB_REPOSITORY" "$APT_REPOSITORY_URL"
 git -C "$temp/site" config user.name 'LASA release automation'
 git -C "$temp/site" config user.email '41898282+github-actions[bot]@users.noreply.github.com'

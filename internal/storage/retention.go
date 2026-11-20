@@ -17,9 +17,6 @@ import (
 var snapshotName = regexp.MustCompile(`^scan-[0-9]{8}T[0-9]{6}\.[0-9]{9}Z-[a-f0-9]{32}\.json$`)
 
 func Prune(path string, keep int) error {
-	if keep < 1 {
-		return fmt.Errorf("retention must be positive")
-	}
 	p, e := filepath.Abs(path)
 	if e != nil {
 		return e
@@ -29,6 +26,24 @@ func Prune(path string, keep int) error {
 		return e
 	}
 	defer h.Close()
+	return pruneAt(h, keep)
+}
+
+func (s *State) Prune(keep int) error {
+	// Open a new directory stream at the pinned inode, starting at entry zero.
+	fd, e := unix.Openat(int(s.dir.Fd()), ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if e != nil {
+		return e
+	}
+	h := os.NewFile(uintptr(fd), s.dir.Name())
+	defer h.Close()
+	return pruneAt(h, keep)
+}
+
+func pruneAt(h *os.File, keep int) error {
+	if keep < 1 {
+		return fmt.Errorf("retention must be positive")
+	}
 	names, e := h.Readdirnames(20001)
 	if e != nil && !errors.Is(e, io.EOF) {
 		return e

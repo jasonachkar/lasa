@@ -10,7 +10,7 @@ A scan is read-only. LASA does not exploit vulnerabilities, change host security
 
 Package and documentation publishing can be bootstrapped from macOS with `bash scripts/bootstrap-distribution.sh`. See [automated publishing](docs/maintainer/publishing.md) for GitHub/GoDaddy authorization, signing, automatic versions and recovery. The MkDocs customer site targets **https://lasa.secureobs.com**; it and package installation become available after bootstrap and the release workflow complete. Scanning still requires a Linux target.
 
-Use Linux AMD64 or ARM64, kernel support for `openat2` (normally Linux 5.6+), and Go **1.27.2** to build:
+Use Linux AMD64 or ARM64, kernel support for `openat2` (normally Linux 5.6+), and Go **1.27.4** to build:
 
 ```sh
 git clone https://github.com/jasonachkar/lasa.git

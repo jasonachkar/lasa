@@ -22,7 +22,7 @@ Customer documentation will explain observed data, use, retention, limitations a
 
 ## Verification
 
-Use supported Go 1.27.2 with module checksum verification. Run tests before implementation for each new behavior, then targeted and full tests, race, vet, lint, fuzz smoke, vulnerability scan, real unprivileged Linux/socket/CLI/daemon tests and deterministic builds. Validate report formats and restricted output writes. Use real kernel load/event tests only when capabilities permit; a build alone never verifies sensor attachment. Record exact commands and environment, skipped checks and blockers. Do not change host security settings or elevate automatically. Do not claim universal or complete production validation.
+Use supported Go 1.27.4 with module checksum verification. Run tests before implementation for each new behavior, then targeted and full tests, race, vet, lint, fuzz smoke, vulnerability scan, real unprivileged Linux/socket/CLI/daemon tests and deterministic builds. Validate report formats and restricted output writes. Use real kernel load/event tests only when capabilities permit; a build alone never verifies sensor attachment. Record exact commands and environment, skipped checks and blockers. Do not change host security settings or elevate automatically. Do not claim universal or complete production validation.
 
 ## Resource budgets
 

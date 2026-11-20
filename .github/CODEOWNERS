@@ -1,0 +1,8 @@
+/.github/ @jasonachkar
+/scripts/ @jasonachkar
+/bpf/ @jasonachkar
+/deploy/ @jasonachkar
+/go.mod @jasonachkar
+/go.sum @jasonachkar
+/Makefile @jasonachkar
+/requirements-docs.txt @jasonachkar

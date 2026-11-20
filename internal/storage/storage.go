@@ -35,6 +35,11 @@ func Atomic(path string, b []byte) error {
 		return fmt.Errorf("open output directory: %w", e)
 	}
 	defer dir.Close()
+	return atomicAt(dir, base, b)
+}
+
+func atomicAt(dir *os.File, base string, b []byte) error {
+	var e error
 	var parentStat unix.Stat_t
 	if e = unix.Fstat(int(dir.Fd()), &parentStat); e != nil {
 		return e
@@ -47,7 +52,7 @@ func Atomic(path string, b []byte) error {
 	}
 	var st unix.Stat_t
 	if e = unix.Fstatat(int(dir.Fd()), base, &st, unix.AT_SYMLINK_NOFOLLOW); e == nil && st.Mode&unix.S_IFMT != unix.S_IFREG {
-		return fmt.Errorf("output %q exists and is not a regular file", path)
+		return fmt.Errorf("output %q exists and is not a regular file", base)
 	} else if e != nil && !errors.Is(e, unix.ENOENT) {
 		return e
 	}
@@ -84,18 +89,11 @@ func Read(path string, limit int64) ([]byte, error) {
 	if e != nil {
 		return nil, e
 	}
-	h, e := linux.Open("/", strings.TrimPrefix(absolute, "/"), unix.O_RDONLY|unix.O_NONBLOCK)
+	h, e := linux.OpenRegular("/", strings.TrimPrefix(absolute, "/"))
 	if e != nil {
 		return nil, e
 	}
 	defer h.Close()
-	st, e := h.Stat()
-	if e != nil {
-		return nil, e
-	}
-	if !st.Mode().IsRegular() {
-		return nil, fmt.Errorf("input must be a regular file")
-	}
 	b, e := io.ReadAll(io.LimitReader(h, limit+1))
 	if e != nil {
 		return nil, e
@@ -106,15 +104,19 @@ func Read(path string, limit int64) ([]byte, error) {
 	return b, nil
 }
 
-// Directory creates each missing directory without following any symlink.
-func Directory(path string) error {
+// State keeps the checked directory pinned for the lifetime of the daemon.
+type State struct {
+	dir *os.File
+}
+
+func OpenState(path string) (*State, error) {
 	p, e := filepath.Abs(path)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	fd, e := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	defer func() { _ = unix.Close(fd) }()
 	for _, part := range strings.Split(strings.TrimPrefix(p, "/"), "/") {
@@ -124,33 +126,52 @@ func Directory(path string) error {
 		next, e := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		if errors.Is(e, unix.ENOENT) {
 			if e = unix.Mkdirat(fd, part, 0700); e != nil && !errors.Is(e, unix.EEXIST) {
-				return e
+				return nil, e
 			}
 			next, e = unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		}
 		if e != nil {
-			return e
+			return nil, e
 		}
 		_ = unix.Close(fd)
 		fd = next
 	}
-	return nil
+	var st unix.Stat_t
+	if e = unix.Fstat(fd, &st); e != nil {
+		return nil, e
+	}
+	if st.Uid != uint32(os.Geteuid()) || st.Mode&0077 != 0 {
+		return nil, fmt.Errorf("state directory must be owned by the scanner user and grant no group or other access")
+	}
+	dir := os.NewFile(uintptr(fd), p)
+	fd = -1 // State owns the descriptor after this point.
+	return &State{dir: dir}, nil
 }
-func Lock(path string) (*os.File, error) {
-	dir, base, e := parent(path)
+
+func (s *State) Close() error { return s.dir.Close() }
+
+func (s *State) WriteSnapshot(name string, data []byte) error {
+	if !snapshotName.MatchString(name) {
+		return fmt.Errorf("invalid snapshot name")
+	}
+	return atomicAt(s.dir, name, data)
+}
+
+func (s *State) Lock() (*os.File, error) {
+	const name = ".daemon.lock"
+	fd, e := unix.Openat(int(s.dir.Fd()), name, unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0600)
 	if e != nil {
 		return nil, e
 	}
-	defer dir.Close()
-	fd, e := unix.Openat(int(dir.Fd()), base, unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0600)
-	if e != nil {
-		return nil, e
-	}
-	h := os.NewFile(uintptr(fd), path)
-	st, e := h.Stat()
-	if e != nil || !st.Mode().IsRegular() {
+	h := os.NewFile(uintptr(fd), name)
+	var st unix.Stat_t
+	if e = unix.Fstat(fd, &st); e != nil {
 		_ = h.Close()
-		return nil, fmt.Errorf("daemon lock must be a regular file")
+		return nil, e
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFREG || st.Uid != uint32(os.Geteuid()) || st.Mode&0077 != 0 || st.Nlink != 1 {
+		_ = h.Close()
+		return nil, fmt.Errorf("daemon lock must be a private regular file owned by the scanner")
 	}
 	if e = unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB); e != nil {
 		_ = h.Close()

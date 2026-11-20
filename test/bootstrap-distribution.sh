@@ -9,7 +9,6 @@ cleanup() {
 trap cleanup EXIT
 mkdir -p "$temp/source/scripts" "$temp/source/.github/workflows" "$temp/mock" "$temp/home" "$temp/state"
 cp "$base/scripts/bootstrap-distribution.sh" "$temp/source/scripts/"
-cp "$base/scripts/next-version.sh" "$temp/source/scripts/"
 cat > "$temp/source/scripts/configure-domain.sh" <<'EOF'
 #!/bin/sh
 touch "$MOCK_STATE/domain-configured"
@@ -19,22 +18,7 @@ printf 'VERSION := 0.1.0\n' > "$temp/source/Makefile"
 git -C "$temp/source" init -q
 git -C "$temp/source" add .
 git -C "$temp/source" -c user.name=Test -c user.email=test@example.invalid commit -qm fixture
-MOCK_COMMIT=$(git -C "$temp/source" rev-parse HEAD)
-export MOCK_COMMIT
 export MOCK_STATE="$temp/state"
-REAL_GIT=$(command -v git)
-export REAL_GIT
-cat > "$temp/mock/git" <<'EOF'
-#!/usr/bin/env bash
-for argument in "$@"; do
-  if [[ $argument == fetch ]]; then
-    [[ $* == *https://github.com/tester/lasa.git* ]] || exit 92
-    if [ -f "$MOCK_STATE/tag" ]; then "$REAL_GIT" tag -f v0.1.0 "$MOCK_COMMIT" >/dev/null; fi
-    exit
-  fi
-done
-exec "$REAL_GIT" "$@"
-EOF
 cat > "$temp/mock/uname" <<'EOF'
 #!/bin/sh
 echo Darwin
@@ -46,13 +30,9 @@ case "$1 $2" in
   'auth status') exit 0;;
   'repo list') if [ -f "$MOCK_STATE/repo" ]; then echo tester/homebrew-lasa; fi; exit 0;;
   'repo create') [[ $* == *--public* ]]; touch "$MOCK_STATE/repo"; exit 0;;
-  'secret list') for file in "$MOCK_STATE"/secret-*; do [ ! -f "$file" ] || printf '%s\n' "${file##*/secret-}"; done; exit 0;;
-  'secret set') cat >/dev/null; touch "$MOCK_STATE/secret-$3"; exit 0;;
+  'secret list') if [[ $* == *'--env release'* ]]; then for file in "$MOCK_STATE"/secret-*; do [ ! -f "$file" ] || printf '%s\n' "${file##*/secret-}"; done; fi; exit 0;;
+  'secret set') cat >/dev/null; printf '%s\n' "$3" >> "$MOCK_STATE/writes"; touch "$MOCK_STATE/secret-$3"; exit 0;;
   'variable set') touch "$MOCK_STATE/variable-$3"; exit 0;;
-  'run list') echo 123; exit 0;;
-  'run view') if [ -f "$MOCK_STATE/failed-run" ]; then echo failure; else echo success; fi; exit 0;;
-  'run rerun') touch "$MOCK_STATE/rerun"; rm -f "$MOCK_STATE/failed-run"; exit 0;;
-  'run watch') touch "$MOCK_STATE/watched"; exit 0;;
 esac
 [[ $1 == api ]] || { echo "Unexpected mock gh command: $1 $2" >&2; exit 90; }
 shift
@@ -71,10 +51,6 @@ done
 case "$method $path" in
   'GET repos/tester/lasa') echo tester/lasa;;
   'GET repos/tester/lasa/environments/release') :;;
-  'GET repos/tester/lasa/commits/'*) echo "$MOCK_COMMIT";;
-  'GET repos/tester/lasa/contents/'*) echo file;;
-  'GET repos/tester/lasa/git/matching-refs/'*) if [ -f "$MOCK_STATE/tag" ]; then echo "$MOCK_COMMIT"; fi;;
-  'POST repos/tester/lasa/git/refs') touch "$MOCK_STATE/tag";;
   'GET repos/tester/homebrew-lasa')
     # Query differentiates these two calls in the real script. Alternate their
     # expected results per invocation; no API output includes private material.
@@ -118,12 +94,10 @@ grep -q 'key material differs' "$temp/rejection"
 [[ $(ssh-keygen -y -f "$state/deploy-key" | awk '{print $1, $2}') == "$deploy" ]]
 printf '%s\n' "$deploy" > "$MOCK_STATE/public-key"
 run_bootstrap
-test -f "$MOCK_STATE/tag"
+[[ ! -f "$MOCK_STATE/domain-configured" ]]
+run_bootstrap --configure-domain
 test -f "$MOCK_STATE/domain-configured"
-test -f "$MOCK_STATE/watched"
-touch "$MOCK_STATE/failed-run"
-run_bootstrap
-test -f "$MOCK_STATE/rerun"
+[[ $(wc -l < "$MOCK_STATE/writes") -eq 2 ]]
 # Missing local identities must never cause a silent remote key replacement.
 mv "$state/signing-fingerprint" "$temp/saved-fingerprint"
 if run_bootstrap --configure-only > "$temp/rejection" 2>&1; then exit 1; fi
@@ -132,4 +106,4 @@ mv "$temp/saved-fingerprint" "$state/signing-fingerprint"
 printf '\nchange\n' >> "$temp/source/Makefile"
 if run_bootstrap --configure-only > "$temp/rejection" 2>&1; then exit 1; fi
 grep -q 'uncommitted changes' "$temp/rejection"
-echo 'PASS: macOS bootstrap provisioning, comment-independent SSH identity, real key mismatch rejection, tag/run retries, stable keys, missing-state and dirty-checkout rejection (external APIs mocked)'
+echo 'PASS: macOS bootstrap provisioning, comment-independent SSH identity, real key mismatch rejection, configuration without release dispatch, stable keys, missing-state and dirty-checkout rejection (external APIs mocked)'

@@ -1,6 +1,10 @@
 name: Linux verification
 on:
   push:
+    branches: [main]
+  merge_group:
+  schedule:
+    - cron: '13 6 * * 1'
   pull_request:
 permissions:
   contents: read
@@ -9,19 +13,23 @@ jobs:
     env:
       VERSION: '0.0.0'
     strategy:
+      fail-fast: false
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          go-version: '1.27.2'
-          cache: true
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: false
       - run: make tools
       - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-      - run: make check fuzz reproducible release-binaries sbom
+      - run: make check fuzz reproducible sbom
+      - run: python3 scripts/security/verify-release-assets.py --sboms dist "$VERSION"
       - name: Package and signed repository integration
         if: matrix.runner == 'ubuntu-24.04'
         run: |
@@ -30,25 +38,29 @@ jobs:
           make packages
           bash test/distribution.sh
           bash test/versioning.sh
+          bash test/release-security.sh
           bash test/domain.sh
           bash test/bootstrap-distribution.sh
-          shellcheck scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-from-actions.sh scripts/publish-docs.sh scripts/install-apt-body.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh
+          shellcheck scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-from-actions.sh scripts/publish-docs.sh scripts/install-apt-body.sh scripts/security/*.sh test/release-security.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh
       - name: Real container view smoke test
         run: |
           version=$(make -s print-version)
           if [ "$(uname -m)" = aarch64 ]; then binary="dist/lasa-$version-linux-arm64"; else binary="dist/lasa-$version-linux-amd64"; fi
           docker build --build-arg LASA_BINARY="$binary" -t lasa-ci -f deploy/container/Dockerfile .
-          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges lasa-ci doctor --format json
-          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges lasa-ci scan --profile container --format json > container-report.json
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges lasa-ci doctor --format json
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges lasa-ci scan --profile container --format json > container-report.json
           ./bin/lasa report --input container-report.json --format html --output container-report.html
   bpf-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          go-version: '1.27.2'
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+          cache: false
       - run: docker build -t lasa-bpf -f bpf/Dockerfile .
       - name: Regenerate and compare sensor objects
         run: |
@@ -58,7 +70,9 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Install key-generation tools
         run: brew install gnupg jq
       - name: Exercise setup with the macOS system Bash
@@ -66,3 +80,36 @@ jobs:
           /bin/bash test/bootstrap-distribution.sh
           /bin/bash test/domain.sh
           /bin/bash test/versioning.sh
+
+  security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: make security-tools
+      - name: Workflow validation and historical credential scan
+        run: |
+          go_bin=$(go env GOPATH)/bin
+          export PATH="$go_bin:$PATH"
+          actionlint
+          bash scripts/security/scan-history.sh
+  docs:
+    uses: ./.github/workflows/docs.yml
+  gate:
+    name: LASA verification gate
+    if: always()
+    needs: [checks, bpf-build, macos-publishing-bootstrap, security, docs]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      CHECK_RESULTS: ${{ join(needs.*.result, ' ') }}
+    steps:
+      - run: test "$CHECK_RESULTS" = 'success success success success success'

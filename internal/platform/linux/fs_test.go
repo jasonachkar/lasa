@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestConstrainedFS(t *testing.T) {
@@ -30,5 +32,15 @@ func TestConstrainedFS(t *testing.T) {
 	}
 	if _, e := fs.Read("link"); e == nil {
 		t.Fatal("symlink followed")
+	}
+}
+
+func TestMetadataReaderRejectsFIFO(t *testing.T) {
+	root := t.TempDir()
+	if err := unix.Mkfifo(filepath.Join(root, "special"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (FS{Root: root}).Read("special"); err == nil {
+		t.Fatal("accepted a non-regular metadata input")
 	}
 }

@@ -27,7 +27,7 @@ for arch in amd64 arm64; do
 Package: lasa
 Version: $version
 Architecture: $arch
-Maintainer: Jason Achkar Diab <jasonachkardiab@gmail.com>
+Maintainer: Jason Achkar Diab <83395276+jasonachkar@users.noreply.github.com>
 Section: utils
 Priority: optional
 Installed-Size: $(du -sk "$root/usr" | awk '{print $1}')

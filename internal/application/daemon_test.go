@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -35,5 +36,35 @@ func TestDaemonPersistsAndStops(t *testing.T) {
 	}
 	if calls != 1 || !found {
 		t.Fatalf("calls=%d files=%v", calls, names)
+	}
+}
+
+func TestDaemonKeepsSnapshotsInTheOpenedStateDirectory(t *testing.T) {
+	parent := t.TempDir()
+	state := filepath.Join(parent, "state")
+	original := filepath.Join(parent, "original")
+	d := Daemon{Directory: state, Interval: time.Second, Retention: 2}
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	d.Scan = func(context.Context) (domain.Snapshot, error) {
+		if err := os.Rename(state, original); err != nil {
+			return domain.Snapshot{}, err
+		}
+		if err := os.Mkdir(state, 0755); err != nil {
+			return domain.Snapshot{}, err
+		}
+		stop()
+		return domain.Snapshot{Schema: domain.SchemaVersion, ScanID: "0123456789abcdef0123456789abcdef", Host: domain.Host{ID: "h"}, Started: time.Now()}, nil
+	}
+	if err := d.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	matches, err := filepath.Glob(filepath.Join(original, "scan-*.json"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("snapshot was not written to the originally checked directory: %v, %v", matches, err)
+	}
+	files, err := os.ReadDir(state)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("replacement directory was used: %v, %v", files, err)
 	}
 }
