@@ -145,6 +145,7 @@ jobs:
           DISTRIBUTION_REPOSITORY: ${{ vars.DISTRIBUTION_REPOSITORY }}
           DISTRIBUTION_BRANCH: ${{ vars.DISTRIBUTION_BRANCH }}
           APT_REPOSITORY_URL: ${{ vars.APT_REPOSITORY_URL }}
+          APT_VALIDITY_DAYS: ${{ vars.APT_VALIDITY_DAYS }}
         run: bash scripts/publish-from-actions.sh
       - name: Publish versioned customer documentation
         env:

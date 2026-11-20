@@ -4,9 +4,9 @@ package report
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"html/template"
-	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -61,14 +61,8 @@ func Decode(raw []byte) (domain.Snapshot, error) {
 	if len(raw) > MaxInput {
 		return s, fmt.Errorf("report exceeds 64MiB")
 	}
-	d := json.NewDecoder(bytes.NewReader(raw))
-	d.DisallowUnknownFields()
-	if e := d.Decode(&s); e != nil {
+	if e := jsonv2.Unmarshal(raw, &s, jsonv2.RejectUnknownMembers(true)); e != nil {
 		return s, fmt.Errorf("invalid report JSON: %w", e)
-	}
-	var extra any
-	if e := d.Decode(&extra); e != io.EOF {
-		return s, fmt.Errorf("trailing report data")
 	}
 	if s.Schema != domain.SchemaVersion || s.ScanID == "" || s.Host.ID == "" {
 		return s, fmt.Errorf("report requires supported schema %s, scan_id and host.id", domain.SchemaVersion)

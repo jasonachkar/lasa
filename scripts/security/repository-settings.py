@@ -11,6 +11,7 @@ import sys
 
 REPO = "jasonachkar/lasa"
 ROOT = f"repos/{REPO}"
+DISTRIBUTION = "repos/jasonachkar/homebrew-lasa"
 GATE = "LASA verification gate"
 PIN_ROLES = [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]
 ENV_POLICY = {"protected_branches": False, "custom_branch_policies": True}
@@ -88,8 +89,8 @@ def ruleset_spec(name, target, include, rules, actors=()):
                 rules=rules)
 
 
-def ruleset(changes, desired, *, replace_id=None):
-    endpoint = f"{ROOT}/rulesets"
+def ruleset(changes, desired, *, replace_id=None, root=ROOT):
+    endpoint = f"{root}/rulesets"
     entries = [entry for entry in api(endpoint + "?includes_parents=false")
                if (entry["id"] == replace_id if replace_id is not None
                    else entry["name"] == desired["name"])]
@@ -188,13 +189,63 @@ def baseline(changes):
                         lambda: not repository()["allow_auto_merge"])
 
 
+
+def distribution(changes):
+    repo = api(DISTRIBUTION)
+    if (repo["full_name"] != "jasonachkar/homebrew-lasa" or repo["visibility"] != "public"
+            or repo["default_branch"] != "main" or not repo["permissions"]["admin"]):
+        raise SettingsError("unexpected package distribution repository")
+    pages = api(f"{DISTRIBUTION}/pages")
+    if (pages["build_type"] != "legacy" or not pages["https_enforced"]
+            or pages["source"] != {"branch": "main", "path": "/"}):
+        raise SettingsError("unexpected Pages hosting configuration")
+    ruleset(changes, ruleset_spec("LASA distribution integrity", "branch", "~DEFAULT_BRANCH",
+                                  [{"type": "deletion"}, {"type": "non_fast_forward"}]),
+            root=DISTRIBUTION)
+    path = f"{DISTRIBUTION}/private-vulnerability-reporting"
+    changes.require(api(path)["enabled"], "PUT", path, verified=lambda: api(path)["enabled"])
+    policies = f"{DISTRIBUTION}/environments/github-pages/deployment-branch-policies"
+
+    def main_only():
+        return [(p["name"], p["type"]) for p in api(policies)["branch_policies"]] == [("main", "branch")]
+
+    entries = api(policies)["branch_policies"]
+    policy_set = {(p["name"], p["type"]) for p in entries}
+    if policy_set == {("main", "branch"), ("gh-pages", "branch")} and len(entries) == 2:
+        # The old gh-pages route is unused. The branch must remain absent
+        # and Pages must still serve main before applying this change.
+        try:
+            api(f"{DISTRIBUTION}/branches/gh-pages")
+        except APIError as error:
+            if error.status != 404 or "Branch not found" not in error.detail:
+                raise
+        else:
+            raise SettingsError("review the existing gh-pages branch before removing its policy")
+        policy_id = next(p["id"] for p in entries if p["name"] == "gh-pages")
+        changes.require(False, "DELETE", f"{policies}/{policy_id}", verified=main_only)
+    elif not main_only():
+        raise SettingsError("unexpected Pages deployment branches require review")
+
+    if changes.mode == "apply" or not changes.pending:
+        effective = {r["type"] for r in api(f"{DISTRIBUTION}/rules/branches/main")}
+        if not {"deletion", "non_fast_forward"} <= effective:
+            raise SettingsError("distribution default branch protections are incomplete")
+
 def successful_gate(sha):
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise SettingsError("a full passing commit SHA is required for governance")
-    checks = api(f"{ROOT}/commits/{sha}/check-runs?check_name=LASA%20verification%20gate&filter=latest")
-    return any(check["name"] == GATE and check["conclusion"] == "success"
-               and check["head_sha"] == sha and check["app"]["slug"] == "github-actions"
-               for check in checks["check_runs"])
+    runs = api(f"{ROOT}/actions/workflows/ci.yml/runs?head_sha={sha}&per_page=50")
+    for run in runs["workflow_runs"]:
+        head_repo = run.get("head_repository") or {}
+        if (run["head_sha"] != sha or run["conclusion"] != "success"
+                or run["event"] not in {"push", "pull_request"}
+                or head_repo.get("full_name") != REPO
+                or run["path"] != ".github/workflows/ci.yml"):
+            continue
+        jobs = api(f"{ROOT}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
+        if [job["conclusion"] for job in jobs["jobs"] if job["name"] == GATE] == ["success"]:
+            return True
+    return False
 
 
 def governance(changes, sha):
@@ -251,7 +302,7 @@ def governance(changes, sha):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("harden", "verify"))
-    parser.add_argument("--stage", choices=("baseline", "governance"), default="baseline")
+    parser.add_argument("--stage", choices=("baseline", "governance", "distribution"), default="baseline")
     parser.add_argument("--sha", help="full SHA with a successful GitHub Actions gate (governance apply)")
     parser.add_argument("--apply", action="store_true", help="perform the planned writes")
     args = parser.parse_args()
@@ -263,8 +314,10 @@ def main():
         repository()
         if args.stage == "baseline":
             baseline(changes)
-        else:
+        elif args.stage == "governance":
             governance(changes, args.sha or "")
+        else:
+            distribution(changes)
         repository()
     except (SettingsError, OSError, ValueError, KeyError, TypeError) as error:
         print(f"LASA settings stopped: {error}", file=sys.stderr)

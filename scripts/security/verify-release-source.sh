@@ -16,6 +16,9 @@ tag=${1:?Specify the existing release tag}
 tagged_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$tag" --jq .sha)
 [[ $tagged_sha == "$GITHUB_SHA" ]] || { echo 'Tag does not identify the tested dispatch commit.' >&2; exit 1; }
 
+main_base=$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main" --jq .merge_base_commit.sha)
+[[ $main_base == "$GITHUB_SHA" ]] || { echo 'Release source is no longer in main history.' >&2; exit 1; }
+
 # Require a completed push run of the canonical CI workflow on main. Exact
 # ref/repository/SHA and the stable gate job are required on its latest attempt.
 query='[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .status == "completed" and .conclusion == "success")][0] | .id // empty'

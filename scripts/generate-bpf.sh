@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-repository=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+repository=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$repository/internal/collector/ebpf"
 export GOPACKAGE=ebpf
 go run github.com/cilium/ebpf/cmd/bpf2go -cc clang-19 -strip llvm-strip-19 -target bpfel \

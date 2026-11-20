@@ -48,13 +48,13 @@ The checked-in object permits self-contained CGO-free normal builds. Maintainers
 make bpf
 ```
 
-The directive calls `scripts/generate-bpf.sh`, which uses the cilium/ebpf version pinned in `go.mod`, fixed flags and source-path remapping. `BPF_CFLAGS` can supply a trusted include directory. `bpf/Dockerfile` pins a Debian 13.6 AMD64 manifest and explicit compiler/header package versions. Mount a checksum-verified Go 1.27.4 toolchain read-only at `/opt/go` and the checkout at `/src`; see the BPF CI job for the complete container invocation.
+The directive calls `scripts/generate-bpf.sh`, which uses the cilium/ebpf version pinned in `go.mod`, fixed flags and source-path remapping. `BPF_CFLAGS` can supply a trusted include directory. `bpf/Dockerfile` pins the Debian 13.6 multiarchitecture image index and explicit compiler/header package versions. Mount a checksum-verified Go 1.27.4 toolchain read-only at `/opt/go` and the checkout at `/src`; see the BPF CI job for the complete container invocation.
 
 Review source and generated diffs together. Do not replace the object with one downloaded from an unverified URL. Do not alter artifact checksums to silence a mismatch. Binary/object compilation is a supply-chain check; event delivery remains a separate test.
 
 ## Privileged VM validation
 
-Use disposable, dedicated Linux VMs with BTF, tracefs and explicitly authorized capabilities. Do not run untrusted pull-request code on these machines. The manually invoked `privileged.yml` workflow uses a dedicated runner label and environment gate.
+Use disposable, dedicated Linux VMs with BTF, tracefs and explicitly authorized capabilities. Do not run untrusted pull-request code on these machines. Keep the VM off the LASA Actions runner inventory and give it neither publishing credentials nor shared workstation directories.
 
 ```sh
 LASA_PRIVILEGED_TESTS=1 go test -count=1 -v ./test/integration -run Privileged

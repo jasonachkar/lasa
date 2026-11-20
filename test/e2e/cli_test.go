@@ -59,6 +59,9 @@ func run(t *testing.T, args ...string) ([]byte, []byte, int) {
 }
 func TestScanRenderExplainAndExitCodes(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	p := filepath.Join(dir, "sudoers")
 	if e := os.WriteFile(p, []byte("never read these contents"), 0600); e != nil {
 		t.Fatal(e)

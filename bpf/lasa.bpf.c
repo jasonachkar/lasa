@@ -47,8 +47,14 @@ static __always_inline int endpoint(struct sys_enter *ctx,__u32 kind) {
 }
 SEC("tracepoint/syscalls/sys_enter_connect") int connect_attempt(struct sys_enter *ctx){return endpoint(ctx,2);}
 SEC("tracepoint/syscalls/sys_enter_bind") int bind_attempt(struct sys_enter *ctx){return endpoint(ctx,3);}
-SEC("tracepoint/syscalls/sys_exit_accept4") int accepted4(struct sys_exit *ctx){if(ctx->ret<0)return 0;struct event *e=new_event(4);if(e){e->result=(__s32)ctx->ret;bpf_ringbuf_submit(e,0);}return 0;}
-SEC("tracepoint/syscalls/sys_exit_accept") int accepted(struct sys_exit *ctx){return accepted4(ctx);}
+static __always_inline int emit_accept(__s64 result) {
+ if(result<0)return 0;
+ struct event *e=new_event(4);
+ if(e){e->result=(__s32)result;bpf_ringbuf_submit(e,0);}
+ return 0;
+}
+SEC("tracepoint/syscalls/sys_exit_accept4") int accepted4(struct sys_exit *ctx){return emit_accept(ctx->ret);}
+SEC("tracepoint/syscalls/sys_exit_accept") int accepted(struct sys_exit *ctx){return emit_accept(ctx->ret);}
 SEC("tracepoint/syscalls/sys_enter_unshare") int namespace_enter(struct sys_enter *ctx){__u64 id=bpf_get_current_pid_tgid(),flags=ctx->args[0];if(!(flags&0x7e020080ULL))return 0;if(bpf_map_update_elem(&namespace_flags,&id,&flags,BPF_ANY)){__u32 key=0;__u64 *lost=bpf_map_lookup_elem(&dropped,&key);if(lost)(*lost)++;}return 0;}
 SEC("tracepoint/syscalls/sys_exit_unshare") int namespace_exit(struct sys_exit *ctx){__u64 id=bpf_get_current_pid_tgid();__u64 *f=bpf_map_lookup_elem(&namespace_flags,&id);if(!f)return 0;__u64 flags=*f;bpf_map_delete_elem(&namespace_flags,&id);if(ctx->ret!=0)return 0;struct event *e=new_event(5);if(e){e->flags=flags;bpf_ringbuf_submit(e,0);}return 0;}
 char LICENSE[] SEC("license")="Dual MIT/GPL";

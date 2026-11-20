@@ -9,6 +9,9 @@ import (
 
 func TestRetentionOnlyManagedRegularFiles(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	for i := 1; i <= 3; i++ {
 		name := fmt.Sprintf("scan-20261018T00000%d.000000000Z-%032x.json", i, i)
 		if e := Atomic(filepath.Join(dir, name), []byte("{}")); e != nil {
