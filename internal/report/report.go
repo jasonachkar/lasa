@@ -37,13 +37,26 @@ func Safe(s string) string {
 	}
 	return b.String()
 }
+
+// ErrExportLimit reports a JSON export that cannot be written or read back.
+var ErrExportLimit = fmt.Errorf("report exceeds the %d MiB export limit even after reducing file scope; narrow --roots or lower --max-files/--max-processes", MaxInput>>20)
+
+// Marshal produces the canonical JSON export: sorted, with empty collections
+// encoded as [] or {} rather than null.
+func Marshal(s domain.Snapshot) ([]byte, error) {
+	s.Sort()
+	domain.EmptyCollections(&s)
+	return json.MarshalIndent(s, "", "  ")
+}
+
 func Render(s domain.Snapshot, format string) ([]byte, error) {
 	s.Sort()
+	domain.EmptyCollections(&s)
 	switch format {
 	case "json":
-		raw, e := json.MarshalIndent(s, "", "  ")
+		raw, e := Marshal(s)
 		if e == nil && len(raw) > MaxInput {
-			return nil, fmt.Errorf("report exceeds 64MiB export limit; narrow roots or lower collection budgets")
+			return nil, ErrExportLimit
 		}
 		return raw, e
 	case "terminal":

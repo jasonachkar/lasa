@@ -26,7 +26,7 @@ func TestRetentionOnlyManagedRegularFiles(t *testing.T) {
 	if e := os.Symlink(unrelated, link); e != nil {
 		t.Fatal(e)
 	}
-	if e := Prune(dir, 1); e != nil {
+	if _, e := Prune(dir, 1); e != nil {
 		t.Fatal(e)
 	}
 	names, e := os.ReadDir(dir)
