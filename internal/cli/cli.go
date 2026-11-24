@@ -211,7 +211,7 @@ func scanCommand() *cobra.Command {
 			return failure("SCAN_FAILED", "scan", "local host", e)
 		}
 		application.ApplyPolicy(&s, p, time.Now().UTC())
-		b, e := report.Render(s, format)
+		b, e := renderReport(s, format, output, c.OutOrStdout())
 		if e != nil {
 			return e
 		}
@@ -247,7 +247,7 @@ func reportCommand() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		b, e := report.Render(s, format)
+		b, e := renderReport(s, format, output, c.OutOrStdout())
 		if e != nil {
 			return e
 		}
@@ -298,17 +298,19 @@ func explainCommand() *cobra.Command {
 			}
 			s.Findings = []domain.Finding{f}
 			s.Observations = obs
-			b, e := report.Render(s, "terminal")
-			if e != nil {
-				return e
-			}
 			var text strings.Builder
-			text.Write(b)
+			text.Write(report.RenderTerminal(s, terminalOptions(c.OutOrStdout())))
+			if len(obs) > 0 {
+				text.WriteString("\nRECORDED EVIDENCE\n")
+			}
 			for _, o := range obs {
-				fmt.Fprintf(&text, "\n%s: %s=%s state=%s source=%s", report.Safe(o.ID), report.Safe(o.Key), report.Safe(o.Value), o.State, report.Safe(o.Source))
+				fmt.Fprintf(&text, "  %s  %s = %s (%s)\n    Source: %s\n", report.Safe(o.ID), report.Safe(o.Key), report.Safe(o.Value), report.Safe(string(o.State)), report.Safe(o.Source))
+			}
+			if len(eval) > 0 {
+				text.WriteString("\nRULE EVALUATIONS\n")
 			}
 			for _, v := range eval {
-				fmt.Fprintf(&text, "\nEvaluation: %s (%s)", v.State, report.Safe(v.Reason))
+				fmt.Fprintf(&text, "  %s (%s)\n", report.Safe(string(v.State)), report.Safe(v.Reason))
 			}
 			return write(c, []byte(text.String()), "")
 		}
