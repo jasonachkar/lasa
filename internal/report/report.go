@@ -47,7 +47,7 @@ func Render(s domain.Snapshot, format string) ([]byte, error) {
 		}
 		return raw, e
 	case "terminal":
-		return terminal(s), nil
+		return renderTerminal(s, TerminalOptions{}), nil
 	case "html":
 		return html(s)
 	case "sarif":
@@ -158,31 +158,6 @@ func Decode(raw []byte) (domain.Snapshot, error) {
 		}
 	}
 	return s, nil
-}
-func terminal(s domain.Snapshot) []byte {
-	var b strings.Builder
-	fmt.Fprintf(&b, "LASA %s | scan %s | profile %s\nScope: %s\nObserved: %d processes, %d sockets, %d files; findings: %d\nCollection complete within declared scope: %t\n", domain.Version, Safe(s.ScanID), Safe(s.Profile), Safe(s.Host.Scope), len(s.Processes), len(s.Sockets), len(s.Files), len(s.Findings), s.Complete)
-	for _, f := range s.Findings {
-		fmt.Fprintf(&b, "\n[%s] %s (%s) priority=%d confidence=%s exposure=%s suppressed=%t\n  %s\n  Evidence: %s\n  Conditional path: %s\n  Action: %s\n", Safe(f.Severity), Safe(f.RuleID), Safe(f.ID), f.Priority, Safe(f.Confidence), Safe(string(f.Exposure)), f.Suppressed, Safe(f.Title), Safe(strings.Join(f.Evidence, ", ")), Safe(f.Path.ConditionalStep), Safe(f.Remediation))
-		for _, w := range f.Warnings {
-			fmt.Fprintf(&b, "  Uncertainty: %s\n", Safe(w))
-		}
-	}
-	fmt.Fprintln(&b, "\nCoverage (enumerated checks only; not a percentage of host security):")
-	for _, c := range s.Coverage {
-		fmt.Fprintf(&b, "  %s: attempted=%d successful=%d skipped=%d unsupported=%d inconclusive=%d complete=%t\n", Safe(c.Collector), c.Attempted, c.Successful, c.Skipped, c.Unsupported, c.Inconclusive, c.Complete)
-	}
-	if len(s.Diagnostics) > 0 {
-		fmt.Fprintf(&b, "\nDiagnostics: %d (use JSON for every target/cause/action)\n", len(s.Diagnostics))
-		limit := len(s.Diagnostics)
-		if limit > 12 {
-			limit = 12
-		}
-		for _, d := range s.Diagnostics[:limit] {
-			fmt.Fprintf(&b, "  %s\n", Safe(d.Error()))
-		}
-	}
-	return []byte(b.String())
 }
 
 var htmlTemplate = template.Must(template.New("report").Funcs(template.FuncMap{"safe": func(v any) string { return Safe(fmt.Sprint(v)) }}).Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>LASA report</title><style>body{font:1rem system-ui;line-height:1.6;max-width:80rem;margin:auto;padding:1rem;color:#182535;background:#f8fafc}article,section{background:white;border:1px solid #ccd3dd;border-radius:.5rem;padding:1rem;margin:1rem 0}code{overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.5rem;border-bottom:1px solid #ccd3dd}.warning{color:#773600}@media(max-width:40rem){table{display:block;overflow:auto}}</style></head><body><header><h1>LASA evidence report</h1><p>Scan <code>{{safe .ScanID}}</code> · {{safe .Profile}} · {{safe .Started}}</p><p>Scope: {{safe .Host.Scope}}. Complete within declared scope: {{safe .Complete}}.</p><p>{{len .Processes}} processes · {{len .Sockets}} sockets · {{len .Files}} files · {{len .Findings}} findings.</p><p>Conditional scenarios are not proof of exploitation. Report data is sensitive.</p></header><main><section><h2>Findings</h2>{{range .Findings}}<article id="{{safe .ID}}"><h3>{{safe .Title}}</h3><p>{{safe .RuleID}} · {{safe .Severity}} · confidence {{safe .Confidence}} · exposure {{safe .Exposure}} · priority {{safe .Priority}} · suppressed {{safe .Suppressed}}</p><p>{{safe .Description}}</p><p>{{safe .Path.ConditionalStep}}</p><h4>Evidence references</h4>{{range .Evidence}}<code>{{safe .}}</code> {{end}}<h4>Uncertainty</h4><ul>{{range .Warnings}}<li class="warning">{{safe .}}</li>{{end}}</ul><h4>Remediation</h4><p>{{safe .Remediation}}</p></article>{{else}}<p>No findings established by the available evidence. This does not establish that the host is secure.</p>{{end}}</section><section><h2>Coverage</h2><table><thead><tr><th>Collector</th><th>Attempted</th><th>Successful</th><th>Skipped</th><th>Inconclusive</th><th>Complete</th></tr></thead><tbody>{{range .Coverage}}<tr><th>{{safe .Collector}}</th><td>{{safe .Attempted}}</td><td>{{safe .Successful}}</td><td>{{safe .Skipped}}</td><td>{{safe .Inconclusive}}</td><td>{{safe .Complete}}</td></tr>{{end}}</tbody></table></section><section><h2>Diagnostics</h2>{{range .Diagnostics}}<article><h3>{{safe .Code}}</h3><p>{{safe .Component}} / {{safe .Operation}} / <code>{{safe .Target}}</code></p><p>Cause: {{safe .Cause}}</p><p>Impact: {{safe .Impact}}</p><p>Action: {{safe .Remediation}}</p></article>{{else}}<p>No collection diagnostics.</p>{{end}}</section><section><h2>Evidence</h2><table><thead><tr><th>ID</th><th>Fact</th><th>Value</th><th>State / source</th></tr></thead><tbody>{{range .Observations}}<tr><td><code>{{safe .ID}}</code></td><td>{{safe .Key}}</td><td>{{safe .Value}}</td><td>{{safe .State}} / {{safe .Source}}</td></tr>{{end}}</tbody></table></section></main></body></html>`))
