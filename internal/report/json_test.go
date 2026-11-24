@@ -93,3 +93,19 @@ func TestJSONExportNeverEncodesEmptyCollectionsAsNull(t *testing.T) {
 		}
 	}
 }
+
+func TestSARIFNamesTheAffectedResource(t *testing.T) {
+	s := domain.Snapshot{Schema: domain.SchemaVersion, ScanID: "s", Host: domain.Host{ID: "h"},
+		Graph:    domain.Graph{Nodes: []domain.Node{{ID: "file", Kind: "file", Label: "/etc/sudoers.d/a b"}}},
+		Files:    []domain.File{{ID: "file", Path: "/etc/sudoers.d/a b", Mode: 0o100666, UID: 1000}},
+		Findings: []domain.Finding{{ID: "f", RuleID: "LASA-009", Title: "Writable sudoers", Severity: "high", Subject: "file"}}}
+	raw, e := Render(s, "sarif")
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, want := range []string{`"uri": "file:///etc/sudoers.d/a%20b"`, `"name": "/etc/sudoers.d/a b"`, `"fullyQualifiedName": "file:/etc/sudoers.d/a b"`, "mode 0666", `"mode": "0666"`, `"text": "Writable sudoers"`} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("SARIF is missing %s", want)
+		}
+	}
+}

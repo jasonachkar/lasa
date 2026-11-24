@@ -74,9 +74,13 @@ func Evaluate(s *domain.Snapshot, pack []rules.Rule) {
 			if priv {
 				addScoringEvidence("privilege.host_root")
 			}
+			if n.Kind == "file" {
+				// The recorded mode and ownership explain a permission finding.
+				addScoringEvidence("file.metadata")
+			}
 			refs := expand(scoringRefs, obsByID)
 			f := domain.Finding{ID: domain.Hash("lasa.finding/v1", s.Host.ID, r.ID, r.Version, n.StableID), RuleID: r.ID, RuleVersion: r.Version, Title: r.Title, Description: r.Description, Subject: n.ID, Subjects: []string{n.ID}, StableSubject: n.StableID, Severity: r.Severity, Confidence: r.Confidence, Exposure: ex, Evidence: refs, Prerequisites: r.Prerequisites, Warnings: warnings, Remediation: r.Remediation, Priority: score, ScoreVersion: scoring.Version, Factors: factors}
-			f.Path = domain.AttackPath{ID: domain.Hash(f.ID, "path"), Entities: []string{n.ID}, Evidence: refs, EntryConditions: r.Prerequisites, ConditionalStep: "If an attacker first gains control of this subject, the observed conditions may increase its potential impact.", PotentialImpact: r.Description, Uncertainties: warnings, Factors: factors}
+			f.Path = domain.AttackPath{ID: domain.Hash(f.ID, "path"), Entities: []string{n.ID}, Evidence: refs, EntryConditions: r.Prerequisites, ConditionalStep: scenario(r), PotentialImpact: impact(r), Uncertainties: warnings, Factors: factors}
 			evidenceSet := map[string]bool{}
 			for _, id := range refs {
 				evidenceSet[id] = true
@@ -146,4 +150,20 @@ func unique(s []string) []string {
 		}
 	}
 	return out
+}
+
+// GenericScenario is used for rules that do not describe their own scenario.
+const GenericScenario = "If an attacker first gains control of this subject, the observed conditions may increase its potential impact."
+
+func scenario(r rules.Rule) string {
+	if r.Scenario != "" {
+		return r.Scenario
+	}
+	return GenericScenario
+}
+func impact(r rules.Rule) string {
+	if r.Impact != "" {
+		return r.Impact
+	}
+	return r.Description
 }

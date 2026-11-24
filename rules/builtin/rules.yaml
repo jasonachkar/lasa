@@ -16,7 +16,7 @@
         "capability.dangerous"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "Network access to the listener and a flaw or misconfiguration in the service that lets a client control the process."
       ],
       "remediation": "Remove unnecessary capabilities, run under a dedicated account and restrict listener reachability.",
       "when": {
@@ -32,7 +32,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "A client that compromises this service would act with the dangerous capabilities the process holds, beyond what an ordinary service account can do.",
+      "impact": "Compromise of a network-facing service would directly grant powerful host-level capabilities."
     },
     {
       "id": "LASA-002",
@@ -49,7 +51,7 @@
         "privilege.host_root"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "An independently confirmed reachable entry point and a flaw in the service."
       ],
       "remediation": "Restrict the independently verified entry point and remove root execution.",
       "when": {
@@ -65,7 +67,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "A reachable entry point that is compromised would give the attacker root in the initial user namespace.",
+      "impact": "Full host control through a confirmed reachable root service."
     },
     {
       "id": "LASA-003",
@@ -82,7 +86,7 @@
         "network.management"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "Network access to the port beyond loopback (host firewall, cloud security groups and NAT are not evaluated)."
       ],
       "remediation": "Verify the service and its intended clients; bind to a restricted interface and enforce authentication and network policy.",
       "when": {
@@ -98,7 +102,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "Remote clients that can reach this port can attempt authentication or protocol attacks against a database or management service.",
+      "impact": "Exposure of a database or management interface to networks beyond this host."
     },
     {
       "id": "LASA-004",
@@ -115,7 +121,7 @@
         "isolation.weak"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "A flaw that gives an attacker code execution inside this root process."
       ],
       "remediation": "Validate workload compatibility, reduce privilege, and configure service-level NoNewPrivileges and appropriate syscall filtering.",
       "when": {
@@ -131,7 +137,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "Code execution in this process would run as root without a syscall filter or the no-new-privileges restriction to limit it.",
+      "impact": "A compromise of this process is not contained by seccomp or NoNewPrivs."
     },
     {
       "id": "LASA-005",
@@ -148,7 +156,7 @@
         "container.host_pid"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "Code execution inside the workload."
       ],
       "remediation": "Verify the runtime boundary and avoid sharing the host PID namespace where unnecessary.",
       "when": {
@@ -164,7 +172,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "A workload that appears containerized but shares the host PID namespace can see, and may be able to signal or trace, host processes.",
+      "impact": "A weakened container boundary for this workload."
     },
     {
       "id": "LASA-006",
@@ -181,7 +191,7 @@
         "file.write_candidate"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "Write access through the reported permission: any account it grants (other users, or members of the file's group) and any process running as one."
       ],
       "remediation": "Restrict socket ownership and group membership; verify ACLs, mount state and runtime authorization. Do not expose the socket to workloads.",
       "when": {
@@ -197,7 +207,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "An account that can write to a container runtime socket can usually start a privileged container and gain root on the host.",
+      "impact": "Effective root on the host through the container runtime API."
     },
     {
       "id": "LASA-007",
@@ -214,7 +226,7 @@
         "file.write_candidate"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "Write access through the reported permission: any account it grants (other users, or members of the file's group) and any process running as one."
       ],
       "remediation": "Restrict executable write permissions and confirm the running executable inode before replacing or restarting the service.",
       "when": {
@@ -230,7 +242,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "Replacing this executable changes what a running root process executes the next time it is started.",
+      "impact": "Code execution as root on the next start of the affected program."
     },
     {
       "id": "LASA-008",
@@ -247,7 +261,8 @@
         "file.write_candidate"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "Write access through the reported permission: any account it grants (other users, or members of the file's group) and any process running as one.",
+        "The unit is loaded, and the manager reloads or the service restarts."
       ],
       "remediation": "Restrict unit and drop-in ownership and permissions. Review enabled units and reload configuration only through change control.",
       "when": {
@@ -263,7 +278,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "An account that can edit this unit or drop-in can change the command systemd runs, typically as root, on the next reload or restart.",
+      "impact": "Code execution as the service user, usually root, after a reload or restart."
     },
     {
       "id": "LASA-009",
@@ -280,7 +297,8 @@
         "file.write_candidate"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "Write access through the reported permission: any account it grants (other users, or members of the file's group) and any process running as one.",
+        "sudo accepts the file (by default sudo refuses files that are world-writable)."
       ],
       "remediation": "Use root ownership and restrictive sudoers modes; validate configuration through the system sudoers administration workflow.",
       "when": {
@@ -296,7 +314,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "An account that can edit sudoers configuration can grant itself unrestricted sudo rights if sudo accepts the file.",
+      "impact": "Root access for any account the write permission covers."
     },
     {
       "id": "LASA-010",
@@ -313,7 +333,7 @@
         "file.executable"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "Write access through the reported permission: any account it grants (other users, or members of the file's group) and any process running as one."
       ],
       "remediation": "Remove unnecessary SUID and restrict file and ancestor permissions; verify sticky directories, nosuid/noexec, ACLs and inode identity.",
       "when": {
@@ -343,7 +363,9 @@
             ]
           }
         ]
-      }
+      },
+      "scenario": "Replacing a SUID executable, or a directory on its path, lets the next caller run attacker code with the file owner's privileges.",
+      "impact": "Privilege escalation to the owner of the SUID file, typically root."
     },
     {
       "id": "LASA-011",
@@ -360,7 +382,7 @@
         "file.executable"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "Write access through the reported permission: any account it grants (other users, or members of the file's group) and any process running as one."
       ],
       "remediation": "Restrict executable and directory permissions; remove unnecessary file capabilities and verify that the xattr has intended semantics.",
       "when": {
@@ -390,7 +412,9 @@
             ]
           }
         ]
-      }
+      },
+      "scenario": "Replacing this file, or a directory on its path, would run attacker code with the capabilities granted to the file.",
+      "impact": "Privilege escalation to the file's capability set."
     },
     {
       "id": "LASA-012",
@@ -408,7 +432,8 @@
         "file.write_candidate"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "Write access through the reported permission: any account it grants (other users, or members of the file's group) and any process running as one.",
+        "A privileged process resolves commands through this directory in its PATH."
       ],
       "remediation": "Restrict directory ownership and write permissions; verify privileged service command resolution and use absolute executable paths.",
       "when": {
@@ -429,7 +454,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "An account that can add files here can shadow commands that privileged scripts and users run by name.",
+      "impact": "Code execution in the context of privileged users or services that use this directory."
     },
     {
       "id": "LASA-013",
@@ -446,7 +473,8 @@
         "file.write_candidate"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "Write access through the reported permission: any account it grants (other users, or members of the file's group) and any process running as one.",
+        "sshd accepts the file (StrictModes rejects group- or world-writable key files by default)."
       ],
       "remediation": "Restrict the key file and parent directory ownership and permissions; verify SSH StrictModes and the effective authorized-key path.",
       "when": {
@@ -462,7 +490,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "An account that can edit this file can add its own SSH key and log in as the account that owns it.",
+      "impact": "Login as the owning account without its password."
     },
     {
       "id": "LASA-014",
@@ -479,7 +509,7 @@
         "container.sensitive_mount"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "Code execution inside the workload."
       ],
       "remediation": "Verify the mount source and namespace, remove unnecessary host-style mounts and prefer read-only narrowly scoped mounts.",
       "when": {
@@ -495,7 +525,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "A workload with host configuration, proc or sys trees mounted can read or change host state through them.",
+      "impact": "Host information disclosure or modification from the workload."
     },
     {
       "id": "LASA-015",
@@ -513,7 +545,7 @@
         "isolation.weak"
       ],
       "prerequisites": [
-        "Successful exploitation or malicious control of the affected subject is a prerequisite; LASA does not test exploitation."
+        "A flaw that gives an attacker code execution inside this root process."
       ],
       "remediation": "Remove unnecessary capabilities and root execution, then apply tested NoNewPrivileges and syscall restrictions.",
       "when": {
@@ -534,7 +566,9 @@
             "value": true
           }
         ]
-      }
+      },
+      "scenario": "Code execution in this process would hold dangerous capabilities with no syscall filter or no-new-privileges restriction.",
+      "impact": "Host compromise from a single process compromise."
     }
   ]
 }

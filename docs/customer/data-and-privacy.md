@@ -42,7 +42,7 @@ The scanner's own procfs file-descriptor links can be used to address a pinned f
 /run/containerd/containerd.sock
 ```
 
-Traversal is bounded to two directory levels under each root, a global entry budget and a deadline. Symlinks are excluded, including ordinary distribution alternatives links. A parent symlink can also make an explicit root inaccessible; choose its canonical target deliberately instead of expecting automatic traversal. User home directories are not recursively enumerated. Add a specific authorized-key directory only when it is part of the intended scope.
+Traversal is bounded to two directory levels under each root, a global entry budget and a deadline. Symlinks are not followed, including ordinary distribution alternatives links; each one is recorded with its link target as `SYMLINK_NOT_FOLLOWED`, which does not make coverage partial. A parent symlink can also make an explicit root inaccessible; choose its canonical target deliberately instead of expecting automatic traversal. User home directories are not recursively enumerated. Add a specific authorized-key directory only when it is part of the intended scope.
 
 ## What LASA does not collect or do
 

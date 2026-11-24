@@ -39,7 +39,7 @@ Container detection uses cgroup naming hints. Custom runtimes, altered cgroup la
 
 ## Filesystem and service boundaries
 
-The default scope omits arbitrary homes, deep directory trees, hidden service paths and symlink targets. Scoped metadata is not proof a service will load a file. Sudo/SSH acceptance policies, systemd activation, ACL interpretation, supplementary-group membership and mount/execution options can affect impact.
+The default scope omits arbitrary homes, deep directory trees, hidden service paths and symlink targets. Sensitive files are recognized by the location their consumer reads, not by name alone: sudoers configuration is `…/etc/sudoers` or a direct child of `…/etc/sudoers.d`, unit configuration lives under a systemd unit directory (`…/etc/systemd/system`, `…/lib/systemd/system`, `…/run/systemd/system`), and authorized keys are inside a `.ssh` directory. The `…` prefix also matches an explicitly scoped image or container root such as `/mnt/image/etc/sudoers.d`. Scoped metadata is not proof a service will load a file. Sudo/SSH acceptance policies, systemd activation, ACL interpretation, supplementary-group membership and mount/execution options can affect impact.
 
 LASA does not read service unit contents, PATH environments, private keys or application configuration contents. Conventional search-directory and service filename checks therefore remain conditional. Kernel LSM presence is contextual evidence, not proof of a policy's effectiveness.
 

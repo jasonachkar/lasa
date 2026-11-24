@@ -25,19 +25,23 @@ type Condition struct {
 	Value     any         `yaml:"value,omitempty" json:"value,omitempty"`
 }
 type Rule struct {
-	ID               string    `yaml:"id" json:"id"`
-	Version          string    `yaml:"version" json:"version"`
-	Category         string    `yaml:"category" json:"category"`
-	Subject          string    `yaml:"subject" json:"subject"`
-	Title            string    `yaml:"title" json:"title"`
-	Description      string    `yaml:"description" json:"description"`
-	Severity         string    `yaml:"severity" json:"severity"`
-	Confidence       string    `yaml:"confidence" json:"confidence"`
-	Unknown          string    `yaml:"unknown" json:"unknown"`
-	RequiredEvidence []string  `yaml:"required_evidence" json:"required_evidence"`
-	Prerequisites    []string  `yaml:"prerequisites" json:"prerequisites"`
-	Remediation      string    `yaml:"remediation" json:"remediation"`
-	When             Condition `yaml:"when" json:"when"`
+	ID               string   `yaml:"id" json:"id"`
+	Version          string   `yaml:"version" json:"version"`
+	Category         string   `yaml:"category" json:"category"`
+	Subject          string   `yaml:"subject" json:"subject"`
+	Title            string   `yaml:"title" json:"title"`
+	Description      string   `yaml:"description" json:"description"`
+	Severity         string   `yaml:"severity" json:"severity"`
+	Confidence       string   `yaml:"confidence" json:"confidence"`
+	Unknown          string   `yaml:"unknown" json:"unknown"`
+	RequiredEvidence []string `yaml:"required_evidence" json:"required_evidence"`
+	Prerequisites    []string `yaml:"prerequisites" json:"prerequisites"`
+	// Scenario and Impact are optional, rule-specific explanations of the
+	// conditional consequence. Generic wording is used when they are empty.
+	Scenario    string    `yaml:"scenario,omitempty" json:"scenario,omitempty"`
+	Impact      string    `yaml:"impact,omitempty" json:"impact,omitempty"`
+	Remediation string    `yaml:"remediation" json:"remediation"`
+	When        Condition `yaml:"when" json:"when"`
 }
 type Pack struct {
 	Schema string `yaml:"schema" json:"schema"`

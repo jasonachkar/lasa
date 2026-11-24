@@ -85,7 +85,7 @@ Uses the full finding fingerprint, not the rule ID. Shows the stored finding, it
 
 ## `lasa diff <previous-report> <current-report>`
 
-Produces JSON with `new`, `continuing`, `changed`, `resolved` and `unknown` categories. Different host identities are rejected. Unavailable assets, changed profile, incomplete collection or a missing explicit negative evaluation keep old findings in `unknown`. LASA deliberately favors uncertainty over a false resolution claim.
+Produces JSON with `new`, `continuing`, `changed`, `resolved` and `unknown` categories plus `unknown_reasons`, which explains each unknown finding. Different host identities are rejected. Unavailable assets, a changed profile, incomplete evidence collectors or a missing explicit negative evaluation keep old findings in `unknown`. LASA deliberately favors uncertainty over a false resolution claim.
 
 ## `lasa report --input <path> --format <format>`
 
@@ -94,7 +94,7 @@ lasa report --input host.report.json --format html --output host.report.html
 lasa report --input host.report.json --format sarif --output host.sarif
 ```
 
-Renders without contacting or inspecting the scanned host. Inputs are capped at 64MiB, must be regular files, must use the supported report schema and must preserve valid evidence references. Unknown JSON fields are rejected for this schema version.
+Renders without contacting or inspecting the scanned host. Inputs are capped at 64 MiB. A scan whose JSON would exceed that limit omits file metadata entries that no finding depends on, records the omission as skipped filesystem coverage with a `RESOURCE_LIMIT` diagnostic and still writes the report. Inputs must be regular files, must use the supported report schema and must preserve valid evidence references. Unknown JSON fields are rejected for this schema version.
 
 ## `lasa rules list`
 
@@ -116,4 +116,4 @@ The scan flags for profile, timeout and resource scope apply. Additional flags:
 lasa daemon --state-dir ./private-state --interval 15m --retention 96
 ```
 
-The daemon runs scans sequentially, persists one JSON report at a time and logs snapshot status to stderr. It does not overlap scans or make remote API calls. Stop with SIGINT or SIGTERM; allow the in-progress scan and bounded filesystem operations time to finish. Persistence, retention or fatal scan failures terminate the daemon with a diagnostic so a supervisor can alert and restart it.
+The daemon runs scans sequentially, persists one JSON report at a time and logs to stderr: one `snapshot` line per scan, one `finding new|changed|resolved severity=... rule=... id=... subject=...` line per change compared with the previous snapshot (restored from the state directory after a restart), a count of findings whose status is unknown, and each `retention removed` snapshot. It does not overlap scans or make remote API calls. Stop with SIGINT or SIGTERM; allow the in-progress scan and bounded filesystem operations time to finish. Persistence, retention or fatal scan failures terminate the daemon with a diagnostic so a supervisor can alert and restart it.

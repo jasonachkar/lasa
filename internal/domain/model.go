@@ -47,7 +47,14 @@ type Diagnostic struct {
 }
 
 func (d Diagnostic) Error() string {
-	return fmt.Sprintf("%s: %s %s (%s): %s; impact: %s; action: %s", d.Code, d.Operation, d.Target, d.Component, d.Cause, d.Impact, d.Remediation)
+	text := fmt.Sprintf("%s: %s %s (%s): %s", d.Code, d.Operation, d.Target, d.Component, d.Cause)
+	if d.Impact != "" {
+		text += "; impact: " + d.Impact
+	}
+	if d.Remediation != "" {
+		text += "; action: " + d.Remediation
+	}
+	return text
 }
 
 type Observation struct {
