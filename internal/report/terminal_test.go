@@ -26,7 +26,9 @@ func TestTerminalFindings(t *testing.T) {
 		Coverage: []domain.Coverage{{Collector: "filesystem", Attempted: 4, Successful: 3, Inconclusive: 1}},
 	}
 	plain := string(RenderTerminal(s, TerminalOptions{Width: 96}))
-	if strings.Index(plain, "Writable sudoers") < 0 || strings.Index(plain, "Local listener") < strings.Index(plain, "Writable sudoers") {
+	table, _, _ := strings.Cut(plain, "\nFINDING DETAILS\n")
+	beforeLow, _, hasLow := strings.Cut(table, "Local listener")
+	if !hasLow || !strings.Contains(beforeLow, "Writable sudoers") {
 		t.Fatal("the findings table must list each finding in priority order")
 	}
 	for _, want := range []string{
