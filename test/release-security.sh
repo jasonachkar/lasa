@@ -7,6 +7,7 @@ temp=$(mktemp -d)
 trap 'rm -rf "$temp"' EXIT
 mkdir "$temp/bin" "$temp/assets"
 export GITHUB_REPOSITORY=example/lasa GITHUB_REF=refs/heads/main GITHUB_EVENT_NAME=workflow_dispatch
+unset GITHUB_ACTIONS
 GITHUB_SHA=$(git rev-parse HEAD)
 export GITHUB_SHA
 export PATH="$temp/bin:$PATH"
@@ -14,6 +15,8 @@ cat > "$temp/bin/gh" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
 case "$*" in
+  'api repos/example/lasa --jq .owner.login') echo example;;
+  'api user --jq .login') echo "${ACTOR_LOGIN:-example}";;
   'api repos/example/lasa/commits/refs/tags/v1.2.3 --jq .sha')
     echo "${TAG_SHA:-$GITHUB_SHA}";;
   'api repos/example/lasa/compare/'"$GITHUB_SHA"'...main --jq .merge_base_commit.sha')
@@ -83,6 +86,8 @@ mkdir "$PUBLISHED_ASSETS"
 cp "$temp/assets/"* "$PUBLISHED_ASSETS/"
 publish() { bash "$root/scripts/security/publish-release-assets.sh" v1.2.3 "$temp/assets"; }
 publish
+GITHUB_ACTIONS=true reject publish
+ACTOR_LOGIN=other reject publish
 ATTESTATION_RESULT=denied reject publish
 printf '%s\n' 'different fixture bytes' > "$PUBLISHED_ASSETS/lasa_1.2.3_amd64.deb"
 python3 "$root/scripts/security/verify-release-assets.py" --write "$PUBLISHED_ASSETS" 1.2.3

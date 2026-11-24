@@ -9,8 +9,8 @@ usage() {
   cat <<'EOF'
 Usage: bash scripts/bootstrap-distribution.sh [--configure-domain] [--repo OWNER/REPO] [--distribution-repo OWNER/REPO]
 
-Prepares a public package repository, the existing GitHub release environment,
-its signing/deploy keys and GitHub Pages. The GitHub CLI must be logged in.
+Prepares a public package repository, local APT signing and GitHub Pages.
+The GitHub CLI must be logged in.
 --configure-domain also configures the requested custom domain.
 EOF
 }
@@ -40,7 +40,7 @@ case "$(uname -s)" in
   Linux) state_base="${XDG_STATE_HOME:-$HOME/.local/state}/lasa-distribution";;
   *) die 'Publishing bootstrap supports macOS and Linux';;
 esac
-for tool in gh gpg jq ssh-keygen curl; do command -v "$tool" >/dev/null || die "Missing publishing tool: $tool"; done
+for tool in gh gpg jq curl; do command -v "$tool" >/dev/null || die "Missing publishing tool: $tool"; done
 gh auth status --hostname github.com >/dev/null 2>&1 || die 'Sign in to the GitHub CLI before configuring publishing.'
 gh api "repos/$repo" --jq .full_name >/dev/null
 stage='creating the public package repository'
@@ -65,27 +65,15 @@ export GNUPGHOME="$gpg_alias/home"
 # shellcheck disable=SC2317
 cleanup() { gpgconf --kill gpg-agent || true; rm -rf "$gpg_alias"; }
 trap cleanup EXIT
-stage='preparing the release environment without changing approval rules'
-environment_error=$(mktemp)
-if ! gh api "repos/$repo/environments/release" >/dev/null 2> "$environment_error"; then
-  if ! grep -q 'HTTP 404' "$environment_error"; then cat "$environment_error" >&2; rm -f "$environment_error"; die 'Could not read the release environment'; fi
-  gh api --method PUT "repos/$repo/environments/release" >/dev/null
-fi
-rm -f "$environment_error"
-secrets=$(gh secret list --repo "$repo" --env release --json name --jq '.[].name')
-repository_secrets=$(gh secret list --repo "$repo" --json name --jq '.[].name')
-if printf '%s\n' "$repository_secrets" | grep -Eq '^(APT_SIGNING_KEY|DISTRIBUTION_DEPLOY_KEY)$'; then
-  die 'Publishing credentials are present at repository scope. Review and migrate them before configuring environment secrets.'
-fi
-stage='generating and safeguarding local publishing keys'
+published_fingerprint=$(gh variable list --repo "$repo" --json name,value --jq '.[] | select(.name=="APT_SIGNING_FINGERPRINT") | .value')
 if [ ! -f "$state/signing-fingerprint" ]; then
-  if printf '%s\n' "$secrets" | grep -qx APT_SIGNING_KEY; then
-    die "APT_SIGNING_KEY exists on GitHub, but its local signing state is missing at $state. Restore that directory from your secure backup; automatic key rotation would break existing installations."
+  if [ -n "$published_fingerprint" ]; then
+    die "An APT signing fingerprint is configured on GitHub, but its local signing state is missing at $state. Restore the original state from your secure backup."
   fi
   identity="LASA packages ($repo)"
   existing=$(gpg --batch --list-secret-keys --with-colons "$identity" 2>/dev/null | awk -F: '$1=="fpr"{print $10;exit}' || true)
   if [ -z "$existing" ]; then
-    gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key "$identity" rsa3072 sign 0
+    gpg --quick-generate-key "$identity" rsa3072 sign 0
   fi
   generated_fingerprint=$(gpg --batch --list-secret-keys --with-colons "$identity" | awk -F: '$1=="fpr"{print $10;exit}')
   [[ $generated_fingerprint =~ ^[A-F0-9]{40}$ ]] || die 'GnuPG did not return one valid primary signing fingerprint'
@@ -95,30 +83,10 @@ fi
 fingerprint=$(cat "$state/signing-fingerprint")
 [[ $fingerprint =~ ^[A-F0-9]{40}$ ]] || die "Invalid saved signing fingerprint in $state"
 gpg --batch --list-secret-keys "$fingerprint" >/dev/null
-if [ ! -f "$state/deploy-key" ]; then
-  if printf '%s\n' "$secrets" | grep -qx DISTRIBUTION_DEPLOY_KEY; then
-    die "DISTRIBUTION_DEPLOY_KEY exists on GitHub but its local private key is missing at $state. Restore your secure backup."
-  fi
-  ssh-keygen -q -t ed25519 -N '' -C "LASA publisher $repo" -f "$state/deploy-key"
+if [[ -n $published_fingerprint && $published_fingerprint != "$fingerprint" ]]; then
+  die 'The configured and local APT signing fingerprints differ. Restore the original key before publishing.'
 fi
-chmod 0600 "$state/deploy-key"
-# SSH comments are labels, not key identity. OpenSSH may emit a multiword
-# comment, while GitHub may omit it; compare only algorithm and key data.
-public_key=$(ssh-keygen -y -f "$state/deploy-key" | awk '{print $1, $2}')
-existing_key=$(gh api --paginate "repos/$distribution/keys" --jq '.[] | select(.title=="LASA distribution publisher") | .key' | awk 'NF {print $1, $2}')
-if [ -n "$existing_key" ]; then
-  [[ $existing_key == "$public_key" ]] || die 'The distribution deploy key material differs from local state (SSH comments ignored). Restore the original key; no existing key was revoked.'
-else
-  gh api --method POST "repos/$distribution/keys" -f title='LASA distribution publisher' -f key="$public_key" -F read_only=false >/dev/null
-fi
-stage='configuring GitHub Actions secrets and variables'
-# Private material goes through stdin, never command arguments or the checkout.
-if ! printf '%s\n' "$secrets" | grep -qx APT_SIGNING_KEY; then
-  gpg --batch --armor --export-secret-keys "$fingerprint" | gh secret set APT_SIGNING_KEY --repo "$repo" --env release
-fi
-if ! printf '%s\n' "$secrets" | grep -qx DISTRIBUTION_DEPLOY_KEY; then
-  gh secret set DISTRIBUTION_DEPLOY_KEY --repo "$repo" --env release < "$state/deploy-key"
-fi
+stage='configuring public publishing variables'
 gh variable set APT_SIGNING_FINGERPRINT --repo "$repo" --body "$fingerprint"
 gh variable set DISTRIBUTION_REPOSITORY --repo "$repo" --body "$distribution"
 gh variable set DISTRIBUTION_BRANCH --repo "$repo" --body "$branch"

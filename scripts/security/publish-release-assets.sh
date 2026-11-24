@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 : "${GITHUB_REPOSITORY:?}"
+if [[ ${GITHUB_ACTIONS:-} == true ]]; then
+  echo 'Run publication locally with GitHub CLI authenticated as the repository owner.' >&2
+  exit 1
+fi
+owner=$(gh api "repos/$GITHUB_REPOSITORY" --jq .owner.login)
+[[ -n $owner && $(gh api user --jq .login) == "$owner" ]] || {
+  echo 'Publication requires GitHub CLI authentication as the repository owner.' >&2
+  exit 1
+}
 tag=${1:?Specify the release tag}
 directory=${2:?Specify the asset directory}
 root=$(cd "$(dirname "$0")" && pwd)

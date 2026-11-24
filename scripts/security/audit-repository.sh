@@ -4,8 +4,8 @@ set -euo pipefail
 export GH_PROMPT_DISABLED=1
 repo=jasonachkar/lasa
 base="repos/$repo"
-if [[ $(gh api --hostname github.com "$base" --jq '[.full_name,.visibility] | join(" ")') != "$repo private" ]]; then
-  echo 'Expected the private LASA repository.' >&2
+if [[ $(gh api --hostname github.com "$base" --jq .full_name) != "$repo" ]]; then
+  echo 'Expected the configured LASA repository.' >&2
   exit 1
 fi
 inventory() {
@@ -30,6 +30,7 @@ done
 inventory "$base/rules/branches/main" '[.[]|{type,parameters}]'
 inventory "$base/branches/main/protection" '{enforce_admins,required_status_checks,required_pull_request_reviews}'
 inventory "$base/actions/permissions" '{enabled,allowed_actions,sha_pinning_required}'
+inventory "$base/actions/permissions/selected-actions" '{github_owned_allowed,verified_allowed,patterns_allowed}'
 inventory "$base/actions/permissions/workflow" '.'
 inventory "$base/actions/permissions/access" '{access_level}'
 inventory "$base/actions/permissions/fork-pr-workflows-private-repos" '.'
@@ -37,7 +38,7 @@ inventory "$base/actions/permissions/fork-pr-contributor-approval" '.'
 inventory "$base/actions/runners" '{total_count}'
 inventory "$base/actions/workflows" '[.workflows[]|{name,path,state}]'
 inventory "$base/environments" '[.environments[]|{name,deployment_branch_policy,protection:[.protection_rules[].type]}]'
-inventory "$base/environments/release" '{can_admins_bypass,deployment_branch_policy,protection:[.protection_rules[].type]}'
+inventory "$base/environments/release" '{can_admins_bypass,deployment_branch_policy,protection:[.protection_rules[].type],reviewers:[.protection_rules[].reviewers[]?.reviewer.login]}'
 inventory "$base/environments/release/deployment-branch-policies" '[.branch_policies[]|{name,type}]'
 inventory "$base/environments/release/secrets" '[.secrets[].name]'
 inventory "$base/environments/release/variables" '[.variables[].name]'
@@ -54,6 +55,7 @@ inventory "$base/secret-scanning/alerts?state=open" '[.[]|{number,state,secret_t
 inventory "$base/code-scanning/default-setup" '{state,languages,query_suite}'
 inventory "$base/private-vulnerability-reporting" '{enabled}'
 inventory "$base/immutable-releases" '{enabled,enforced_by_owner}'
+inventory "$base/interaction-limits" '{limit,expires_at}'
 inventory "$base/releases?per_page=100" '[.[]|{tag_name,draft,immutable,assets:[.assets[]|{name,digest}]}]'
 inventory "$base/tags?per_page=100" '[.[].name]'
 inventory "$base/pages" '{build_type,https_enforced,public,source}'
@@ -68,6 +70,7 @@ inventory "$distribution/actions/variables" '[.variables[].name]'
 inventory "$distribution/actions/runners" '{total_count}'
 inventory "$distribution/actions/workflows" '[.workflows[]|{name,path,state}]'
 inventory "$distribution/actions/permissions/workflow" '.'
+inventory "$distribution/rulesets?includes_parents=true" '[.[]|{id,name,enforcement,target,source_type}]'
 inventory "$distribution/rules/branches/main" '[.[]|{type,parameters}]'
 inventory "$distribution/pages" '{build_type,status,https_enforced,public,source}'
 inventory "$distribution/environments/github-pages/deployment-branch-policies" '[.branch_policies[]|{name,type}]'

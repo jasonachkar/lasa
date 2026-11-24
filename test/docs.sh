@@ -25,18 +25,22 @@ git -C "$temp/site" remote add origin "$temp/remote"
 git -C "$temp/site" push -qu origin pages
 (
   cd "$temp/site"
-  mike deploy -F "$root/mkdocs.yml" -b pages -r origin --alias-type redirect -u 0.1.0 latest
+  mike deploy -F "$root/mkdocs.yml" -b pages -r origin --alias-type redirect -u current latest
   mike set-default -F "$root/mkdocs.yml" -b pages -r origin latest
   git push -q origin pages
 )
-# Each publishing job starts with a new checkout, as this second deployment does.
+git clone -q --branch pages "$temp/remote" "$temp/first"
+git -C "$temp/first" config user.name Test
+git -C "$temp/first" config user.email test@example.invalid
+bash "$root/scripts/publish-docs.sh" "$temp/first" 0.1.0
+test "$(git -C "$temp/first" ls-remote origin refs/heads/pages | awk '{print $1}')" != "$(git -C "$temp/first" rev-parse HEAD)"
+git -C "$temp/first" push -q origin pages
 git clone -q --branch pages "$temp/remote" "$temp/second"
 git -C "$temp/second" config user.name Test
 git -C "$temp/second" config user.email test@example.invalid
+bash "$root/scripts/publish-docs.sh" "$temp/second" 0.2.0
 (
   cd "$temp/second"
-  mike deploy -F "$root/mkdocs.yml" -b pages -r origin --alias-type redirect -u 0.2.0 latest
-  mike set-default -F "$root/mkdocs.yml" -b pages -r origin latest
   git show pages:versions.json > "$temp/versions.json"
   git show pages:apt/package.deb | grep -qx keep-package
   git show pages:Formula/lasa.rb | grep -qx keep-formula
@@ -49,7 +53,7 @@ git -C "$temp/second" config user.email test@example.invalid
 python - "$temp/versions.json" <<'PY'
 import json, sys
 versions = {v['version']: v for v in json.load(open(sys.argv[1]))}
-assert set(versions) == {'0.1.0', '0.2.0'}
+assert set(versions) == {'current', '0.1.0', '0.2.0'}
 assert versions['0.2.0']['aliases'] == ['latest']
 assert not versions['0.1.0']['aliases']
 PY

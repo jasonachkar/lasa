@@ -41,7 +41,7 @@ jobs:
           bash test/release-security.sh
           bash test/domain.sh
           bash test/bootstrap-distribution.sh
-          shellcheck scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-from-actions.sh scripts/publish-docs.sh scripts/install-apt-body.sh scripts/security/*.sh test/release-security.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh scripts/generate-bpf.sh
+          shellcheck scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-docs.sh scripts/install-apt-body.sh scripts/security/*.sh test/release-security.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh scripts/generate-bpf.sh
       - name: Real container view smoke test
         run: |
           version=$(make -s print-version)
@@ -73,7 +73,7 @@ jobs:
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e GOPATH=/tmp/go -v "$PWD:/src" -v "$(go env GOROOT):/opt/go:ro" lasa-bpf
           git diff --exit-code -- internal/collector/ebpf/sensor_bpfel.go internal/collector/ebpf/sensor_bpfel.o
   macos-publishing-bootstrap:
-    runs-on: macos-26
+    runs-on: macos-15-intel
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

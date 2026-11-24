@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run in Linux Actions after importing the APT signing secret into GNUPGHOME.
+# Run on Linux with access to the owner's APT signing key.
 # Updates a checked-out distribution repository; committing/pushing is separate.
 set -euo pipefail
 umask 022

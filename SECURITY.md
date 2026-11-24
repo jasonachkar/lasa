@@ -2,7 +2,7 @@
 
 LASA is an initial implementation. The current release's verified capabilities and remaining production risks are recorded in [verification](docs/maintainer/verification.md). Do not assume untested privileged/kernel combinations are supported.
 
-Do not post credentials, private keys, full process environments or unredacted infrastructure reports in public issues. Use the repository's private vulnerability reporting feature if the owner has enabled it. Otherwise contact the repository owner through an established private channel to arrange secure disclosure before sharing sensitive details. No fictional security email or response SLA is asserted.
+Use [GitHub private vulnerability reporting](https://github.com/jasonachkar/lasa/security/advisories/new) to report a vulnerability to the owner. Limit initial reports to the evidence needed to reproduce the issue. Keep credentials, private keys, full process environments, and unredacted infrastructure reports in your own secure systems.
 
 Include the scanner version, affected component, a minimal reproduction/fixture, platform/kernel context, impact and non-sensitive diagnostic codes. A kernel verifier failure should include its relevant log through an approved private channel. Do not disable verification or run exploitation on systems you are not authorized to test.
 

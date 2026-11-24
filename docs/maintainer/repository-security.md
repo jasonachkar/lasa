@@ -1,26 +1,18 @@
 # LASA repository security
 
-Keep the source repository private until the owner makes the public-source decision in [the audit](../../LASA_PUBLIC_RELEASE_SECURITY_AUDIT.md). Use the existing GitHub CLI login on github.com for administrative changes. The scripts print allowlisted settings and names of secrets. Keep their output with the private audit evidence.
-
-## GitHub settings
+The [initial audit](../../LASA_PUBLIC_RELEASE_SECURITY_AUDIT.md) records the original private configuration and findings. Audit the current source and package-site repositories with the owner's authenticated GitHub CLI session.
 
 ```sh
 bash scripts/security/audit-repository.sh
-bash scripts/security/harden-repository.sh
-bash scripts/security/harden-repository.sh --stage distribution
-bash scripts/security/harden-repository.sh --stage governance
-bash scripts/security/verify-repository.sh
-bash scripts/security/verify-repository.sh --stage distribution
-bash scripts/security/verify-repository.sh --stage governance
 ```
 
-Hardening defaults to a dry run. Review the endpoint and request body for each operation before adding `--apply`. The governance stage also requires `--sha` identifying a successful hosted `ci.yml` run from this repository. It activates the new `main` protections before moving the legacy admin-only ref policy off `main`. Unknown or changed settings stop the script for review. Keep release credentials in the protected `release` environment. Credential maintenance and billing belong to the owner account.
+The legacy settings planner is for the initial private-source setup. Use the public repository's active rulesets and the read-only inventory above to verify current enforcement.
 
-GitHub's `main` policy uses a strict required check from the GitHub Actions integration, squash merging, resolved conversations and no admin bypass actor on that ref. One maintainer can merge their reviewed PR after checks pass. `CODEOWNERS` routes changes in sensitive areas to the maintainer. A repository administrator can still edit the rules themselves. Review workflow and gate changes carefully since a required status check binds the name and GitHub App identity.
+The source branch and tag write rules name the owner account explicitly. Main additionally requires a squash pull request, resolved conversations, the canonical hosted LASA gate, and CodeQL. The main ruleset has no bypass actor. Version tags cannot move or be deleted, and GitHub Releases are immutable after publication. Fork workflows require owner approval, default workflow permissions are read-only, and GitHub Actions actions must be SHA-pinned.
 
-Release tags use two rulesets. The admin role may create a version tag. Tag updates, force moves and deletions have a separate active rule without bypass actors. Immutable releases protect published assets at the repository level. The release environment accepts only `main` and has admin bypass disabled. The existing single-maintainer private plan uses explicit workflow dispatch as operator authorization. A public repository can use its required reviewer protection with the owner as the reviewer and self-review enabled. Recheck the available GitHub features and the release process before adding any reviewer requirement.
+The `release` environment admits `main` and requires owner approval before attestation. The release workflow has no contents-write token or signing or deploy secrets. Both official repositories accept branch and tag writes from the owner account. GitHub Pages builds the published package site from the owner's `main` push. See [publishing](publishing.md) for the manual release steps.
 
-Private fork runs and cross-repository Actions access are disabled for LASA. GitHub exposes its public fork approval setting only on a public repository. If the owner authorizes visibility later, recheck the public fork approval policy and configure approval for all outside collaborators before approving their runs. Use isolated GitHub-hosted verification only. Check the account's GitHub App installations directly if the active GitHub CLI token cannot enumerate them.
+Verify personal account security from GitHub's settings pages. The GitHub CLI inventory cannot enumerate all installed apps or read the owner's two-factor configuration with the standard login.
 
 ## Local validation
 
@@ -38,5 +30,3 @@ bash test/release-security.sh
 ```
 
 The release test uses an isolated GitHub CLI mock and fixture inputs. The APT integration uses fresh test signing keys and a temporary package state. Test the live eBPF sensor only on an authorized disposable Linux VM with tracefs and BTF. See [eBPF](ebpf.md) for the command and reporting expectations.
-
-The distribution repository permits signed-package automation to fast-forward its Pages branch with a dedicated deploy key. It rejects default-branch deletion and non-fast-forward updates. The deploy key remains able to write any path on that repository. Protect credentials and review the Pages publication routes before changing how package automation authenticates.
