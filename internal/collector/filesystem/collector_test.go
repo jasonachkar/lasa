@@ -94,3 +94,28 @@ func TestRootThroughSymlinkIsAnExplainedGap(t *testing.T) {
 		t.Fatalf("a root that traverses a symlink must stay an explained gap: %+v", b.Diagnostics)
 	}
 }
+
+func TestKindUsesCanonicalLocations(t *testing.T) {
+	const file = 0o100666
+	for path, want := range map[string]string{
+		"/etc/sudoers":                                              "sudoers",
+		"/etc/sudoers.d/admins":                                     "sudoers",
+		"/mnt/image/etc/sudoers.d/admins":                           "sudoers",
+		"/tmp/x/sudoers.d/evil":                                     "other",
+		"/tmp/x/sudoers":                                            "other",
+		"/etc/sudoers.d/nested/file":                                "other",
+		"/home/alice/.ssh/authorized_keys":                          "authorized_keys",
+		"/var/lib/git/.ssh/authorized_keys2":                        "authorized_keys",
+		"/tmp/authorized_keys":                                      "other",
+		"/etc/systemd/system/app.service":                           "service_config",
+		"/etc/systemd/system/app.service.d/override.conf":           "service_config",
+		"/usr/lib/systemd/system/multi-user.target.wants/x.service": "service_config",
+		"/srv/rootfs/lib/systemd/system/x.service":                  "service_config",
+		"/home/alice/systemd/evil.service":                          "other",
+		"/etc/systemd/journald.conf":                                "other",
+	} {
+		if got := kind(path, file); got != want {
+			t.Errorf("kind(%q) = %q, want %q", path, got, want)
+		}
+	}
+}

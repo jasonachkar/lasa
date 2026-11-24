@@ -7,6 +7,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"html/template"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -173,26 +174,136 @@ func Decode(raw []byte) (domain.Snapshot, error) {
 	return s, nil
 }
 
-var htmlTemplate = template.Must(template.New("report").Funcs(template.FuncMap{"safe": func(v any) string { return Safe(fmt.Sprint(v)) }}).Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>LASA report</title><style>body{font:1rem system-ui;line-height:1.6;max-width:80rem;margin:auto;padding:1rem;color:#182535;background:#f8fafc}article,section{background:white;border:1px solid #ccd3dd;border-radius:.5rem;padding:1rem;margin:1rem 0}code{overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.5rem;border-bottom:1px solid #ccd3dd}.warning{color:#773600}@media(max-width:40rem){table{display:block;overflow:auto}}</style></head><body><header><h1>LASA evidence report</h1><p>Scan <code>{{safe .ScanID}}</code> · {{safe .Profile}} · {{safe .Started}}</p><p>Scope: {{safe .Host.Scope}}. Complete within declared scope: {{safe .Complete}}.</p><p>{{len .Processes}} processes · {{len .Sockets}} sockets · {{len .Files}} files · {{len .Findings}} findings.</p><p>Conditional scenarios are not proof of exploitation. Report data is sensitive.</p></header><main><section><h2>Findings</h2>{{range .Findings}}<article id="{{safe .ID}}"><h3>{{safe .Title}}</h3><p>{{safe .RuleID}} · {{safe .Severity}} · confidence {{safe .Confidence}} · exposure {{safe .Exposure}} · priority {{safe .Priority}} · suppressed {{safe .Suppressed}}</p><p>{{safe .Description}}</p><p>{{safe .Path.ConditionalStep}}</p><h4>Evidence references</h4>{{range .Evidence}}<code>{{safe .}}</code> {{end}}<h4>Uncertainty</h4><ul>{{range .Warnings}}<li class="warning">{{safe .}}</li>{{end}}</ul><h4>Remediation</h4><p>{{safe .Remediation}}</p></article>{{else}}<p>No findings established by the available evidence. This does not establish that the host is secure.</p>{{end}}</section><section><h2>Coverage</h2><table><thead><tr><th>Collector</th><th>Attempted</th><th>Successful</th><th>Skipped</th><th>Inconclusive</th><th>Complete</th></tr></thead><tbody>{{range .Coverage}}<tr><th>{{safe .Collector}}</th><td>{{safe .Attempted}}</td><td>{{safe .Successful}}</td><td>{{safe .Skipped}}</td><td>{{safe .Inconclusive}}</td><td>{{safe .Complete}}</td></tr>{{end}}</tbody></table></section><section><h2>Diagnostics</h2>{{range .Diagnostics}}<article><h3>{{safe .Code}}</h3><p>{{safe .Component}} / {{safe .Operation}} / <code>{{safe .Target}}</code></p><p>Cause: {{safe .Cause}}</p><p>Impact: {{safe .Impact}}</p><p>Action: {{safe .Remediation}}</p></article>{{else}}<p>No collection diagnostics.</p>{{end}}</section><section><h2>Evidence</h2><table><thead><tr><th>ID</th><th>Fact</th><th>Value</th><th>State / source</th></tr></thead><tbody>{{range .Observations}}<tr><td><code>{{safe .ID}}</code></td><td>{{safe .Key}}</td><td>{{safe .Value}}</td><td>{{safe .State}} / {{safe .Source}}</td></tr>{{end}}</tbody></table></section></main></body></html>`))
+var htmlTemplate = template.Must(template.New("report").Funcs(template.FuncMap{"safe": func(v any) string { return Safe(fmt.Sprint(v)) }}).Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>LASA report</title><style>
+:root{--bg:#f6f8fa;--card:#fff;--fg:#1b2533;--muted:#5b6778;--line:#d5dbe3;--critical:#8a1538;--high:#b42318;--medium:#a15c00;--low:#0b6e8a;--informational:#5b6778;--ok:#1a7f37}
+@media(prefers-color-scheme:dark){:root{--bg:#0f141a;--card:#161d26;--fg:#e6edf3;--muted:#9aa7b5;--line:#2b3542;--critical:#ff7b9c;--high:#ff7b72;--medium:#e3b341;--low:#56d4f5;--informational:#9aa7b5;--ok:#56d364}}
+body{font:15px/1.55 system-ui,sans-serif;max-width:78rem;margin:auto;padding:1rem;color:var(--fg);background:var(--bg)}
+section,article{background:var(--card);border:1px solid var(--line);border-radius:.6rem;padding:1rem 1.2rem;margin:1rem 0}
+article{border-left:.35rem solid var(--sev)}h1{margin:.2rem 0}h2{margin-top:0}h3{margin:.1rem 0 .5rem}
+code{overflow-wrap:anywhere;font-size:.9em}.muted{color:var(--muted)}table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:.45rem .5rem;border-bottom:1px solid var(--line);vertical-align:top}
+.sev{font-weight:700;color:var(--sev);text-transform:uppercase;white-space:nowrap}
+.pill{display:inline-block;padding:.1rem .6rem;border-radius:1rem;border:1px solid var(--sev);color:var(--sev);margin-right:.4rem;font-weight:600}
+dl{display:grid;grid-template-columns:9rem 1fr;gap:.25rem 1rem;margin:0}dt{color:var(--muted)}dd{margin:0}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);padding:.5rem;border-radius:.4rem;margin:0}
+.critical{--sev:var(--critical)}.high{--sev:var(--high)}.medium{--sev:var(--medium)}.low{--sev:var(--low)}.informational{--sev:var(--informational)}
+@media(max-width:40rem){table{display:block;overflow:auto}dl{grid-template-columns:1fr}}
+</style></head><body><header><h1>LASA evidence report</h1>
+<p class="muted">LASA {{safe .Version}} · {{safe .S.Profile}} profile · scan <code>{{safe .S.ScanID}}</code> · {{safe .S.Started}}</p>
+<p>Scope: {{safe .S.Host.Scope}}<br>{{len .S.Processes}} processes · {{len .S.Sockets}} sockets · {{len .S.Files}} files · coverage <strong>{{if .S.Complete}}complete{{else}}partial{{end}}</strong> within the declared scope.</p>
+<p>{{range .Counts}}<span class="pill {{.Severity}}">{{.Count}} {{.Severity}}</span>{{else}}<strong>No findings.</strong> {{if not .S.Complete}}Coverage is partial, so this is not a clean bill of health.{{end}}{{end}}</p>
+<p class="muted">Findings are conditional and are not proof of exploitation. Report data is sensitive.</p></header><main>
+{{if .Findings}}<section><h2>Findings</h2><table><thead><tr><th>ID</th><th>Severity</th><th>Priority</th><th>Finding</th><th>Affected</th></tr></thead><tbody>{{range .Findings}}<tr class="{{.Finding.Severity}}"><td><a href="#{{safe .Finding.ID}}"><code>{{safe .Short}}</code></a></td><td class="sev">{{safe .Finding.Severity}}</td><td>{{.Finding.Priority}}</td><td>{{safe .Finding.Title}}{{if .Finding.Suppressed}} <em>(suppressed)</em>{{end}}</td><td><code>{{safe .Subject}}</code></td></tr>{{end}}</tbody></table></section>
+{{range .Findings}}<article id="{{safe .Finding.ID}}" class="{{.Finding.Severity}}"><p class="sev">{{safe .Finding.Severity}} · priority {{.Finding.Priority}}</p><h3>{{safe .Finding.Title}}</h3><dl>
+<dt>Affected</dt><dd><code>{{safe .Subject}}</code></dd>
+{{if .Why}}<dt>Why</dt><dd>{{safe .Why}}</dd>{{end}}
+{{if .Finding.Suppressed}}<dt>Status</dt><dd>Suppressed: {{safe .Finding.SuppressionReason}}</dd>{{end}}
+<dt>Risk</dt><dd>{{safe .Finding.Path.ConditionalStep}}</dd>
+{{if .Impact}}<dt>Impact</dt><dd>{{safe .Impact}}</dd>{{end}}
+<dt>Requires</dt><dd>{{range .Finding.Prerequisites}}{{safe .}} {{end}}</dd>
+<dt>Fix</dt><dd>{{safe .Finding.Remediation}}</dd>
+{{if .Suggestion}}<dt>Suggested</dt><dd><pre>{{safe .Suggestion}}</pre><span class="muted">Review before running; LASA never runs commands.</span></dd>{{end}}
+<dt>Assessment</dt><dd>confidence {{safe .Finding.Confidence}} · exposure {{safe .Exposure}} · rule {{safe .Finding.RuleID}} v{{safe .Finding.RuleVersion}}</dd>
+<dt>Fingerprint</dt><dd><code>{{safe .Finding.ID}}</code></dd>
+{{range .Caveats}}<dt>Caveat</dt><dd>{{safe .}}</dd>{{end}}</dl>
+<details><summary>Evidence ({{len .Evidence}} observations)</summary><table><thead><tr><th>Fact</th><th>Value</th><th>State</th><th>Source</th></tr></thead><tbody>{{range .Evidence}}<tr><td>{{safe .Key}}</td><td><code>{{safe .Value}}</code></td><td>{{safe .State}}</td><td><code>{{safe .Source}}</code></td></tr>{{end}}</tbody></table></details></article>{{end}}{{end}}
+{{if .Notes}}<section><h2>Notes</h2><ul>{{range .Notes}}<li>{{safe .}}</li>{{end}}</ul></section>{{end}}
+<section><h2>Coverage</h2><table><thead><tr><th>Collector</th><th>Status</th><th>Attempted</th><th>Successful</th><th>Skipped</th><th>Not applicable</th><th>Inconclusive</th></tr></thead><tbody>{{range .S.Coverage}}<tr><th>{{safe .Collector}}</th><td>{{if .Complete}}complete{{else}}partial{{end}}</td><td>{{.Attempted}}</td><td>{{.Successful}}</td><td>{{.Skipped}}</td><td>{{.Unsupported}}</td><td>{{.Inconclusive}}</td></tr>{{end}}</tbody></table></section>
+{{if .Gaps}}<section><h2>Collection gaps</h2><p class="muted">Checks LASA could not complete. Unknown never counts as secure.</p><table><thead><tr><th>Collector</th><th>Gap</th><th>Examples</th><th>Action</th></tr></thead><tbody>{{range .Gaps}}<tr><td>{{safe .Component}}</td><td>{{.Count}} {{safe .Summary}}</td><td>{{range .Examples}}<code>{{safe .}}</code><br>{{end}}</td><td>{{safe .Action}}</td></tr>{{end}}</tbody></table></section>{{end}}
+{{if .Expected}}<section><h2>Not inspected by design</h2><table><tbody>{{range .Expected}}<tr><td>{{safe .Component}}</td><td>{{.Count}} {{safe .Summary}}</td><td>{{range .Examples}}<code>{{safe .}}</code><br>{{end}}</td></tr>{{end}}</tbody></table></section>{{end}}
+<section><details><summary>All diagnostics ({{len .S.Diagnostics}})</summary><table><thead><tr><th>Code</th><th>Target</th><th>Cause</th><th>Action</th></tr></thead><tbody>{{range .S.Diagnostics}}<tr><td>{{safe .Code}}</td><td><code>{{safe .Target}}</code></td><td>{{safe .Cause}}</td><td>{{safe .Remediation}}</td></tr>{{end}}</tbody></table></details></section>
+<section><details><summary>All recorded evidence ({{len .S.Observations}} observations)</summary><table><thead><tr><th>ID</th><th>Fact</th><th>Value</th><th>State / source</th></tr></thead><tbody>{{range .S.Observations}}<tr><td><code>{{safe .ID}}</code></td><td>{{safe .Key}}</td><td>{{safe .Value}}</td><td>{{safe .State}} / {{safe .Source}}</td></tr>{{end}}</tbody></table></details></section>
+</main></body></html>`))
+
+type htmlFinding struct {
+	Finding                                   domain.Finding
+	Short, Subject, Why, Suggestion, Exposure string
+	Impact                                    string
+	Caveats                                   []string
+	Evidence                                  []domain.Observation
+}
+
+type severityCount struct {
+	Severity string
+	Count    int
+}
 
 func html(s domain.Snapshot) ([]byte, error) {
+	v := newView(s)
+	ids := ShortIDs(s.Findings)
+	common := commonWarnings(s.Findings)
+	observations := make(map[string]domain.Observation, len(s.Observations))
+	for _, o := range s.Observations {
+		observations[o.ID] = o
+	}
+	data := struct {
+		S              domain.Snapshot
+		Version        string
+		Findings       []htmlFinding
+		Counts         []severityCount
+		Gaps, Expected []diagnosticGroup
+		Notes          []string
+	}{S: s, Version: domain.Version}
+	counts := map[string]int{}
+	for _, f := range s.Findings {
+		counts[f.Severity]++
+		h := htmlFinding{Finding: f, Short: ids[f.ID], Subject: v.subject(f), Why: v.why(f), Suggestion: v.suggestion(f), Exposure: v.exposure(f)}
+		if f.Path.PotentialImpact != f.Description && f.Path.PotentialImpact != f.Path.ConditionalStep {
+			h.Impact = f.Path.PotentialImpact
+		}
+		for _, w := range f.Warnings {
+			if !common[w] {
+				h.Caveats = append(h.Caveats, w)
+			}
+		}
+		for _, id := range f.Evidence {
+			if o, ok := observations[id]; ok {
+				h.Evidence = append(h.Evidence, o)
+			}
+		}
+		data.Findings = append(data.Findings, h)
+	}
+	for _, sev := range severityOrder {
+		if counts[sev] > 0 {
+			data.Counts = append(data.Counts, severityCount{sev, counts[sev]})
+		}
+	}
+	for _, g := range groupDiagnostics(s.Diagnostics) {
+		if g.Expected {
+			data.Expected = append(data.Expected, g)
+		} else {
+			data.Gaps = append(data.Gaps, g)
+		}
+	}
+	for _, f := range s.Findings {
+		for _, w := range f.Warnings {
+			if common[w] {
+				data.Notes = append(data.Notes, w)
+				delete(common, w)
+			}
+		}
+	}
 	var b bytes.Buffer
-	e := htmlTemplate.Execute(&b, s)
+	e := htmlTemplate.Execute(&b, data)
 	return b.Bytes(), e
 }
 func sarif(s domain.Snapshot) ([]byte, error) {
-	ids := map[string]bool{}
+	v := newView(s)
+	byRule := map[string]domain.Finding{}
 	for _, f := range s.Findings {
-		ids[f.RuleID] = true
+		if _, ok := byRule[f.RuleID]; !ok {
+			byRule[f.RuleID] = f
+		}
 	}
-	keys := make([]string, 0, len(ids))
-	for id := range ids {
+	keys := make([]string, 0, len(byRule))
+	for id := range byRule {
 		keys = append(keys, id)
 	}
 	sort.Strings(keys)
 	descriptors := []any{}
 	for _, id := range keys {
-		descriptors = append(descriptors, map[string]any{"id": id, "shortDescription": map[string]string{"text": id}})
+		f := byRule[id]
+		descriptors = append(descriptors, map[string]any{"id": id, "name": id, "shortDescription": map[string]string{"text": f.Title}, "fullDescription": map[string]string{"text": f.Description}, "help": map[string]string{"text": f.Remediation}, "properties": map[string]any{"security-severity-label": f.Severity}})
 	}
 	results := []any{}
 	for _, f := range s.Findings {
@@ -202,7 +313,27 @@ func sarif(s domain.Snapshot) ([]byte, error) {
 		} else if f.Severity == "low" || f.Severity == "informational" {
 			level = "note"
 		}
-		r := map[string]any{"ruleId": f.RuleID, "level": level, "message": map[string]string{"text": f.Title + ". " + f.Description + " Remediation: " + f.Remediation}, "partialFingerprints": map[string]string{"lasa/v1": f.ID}, "locations": []any{map[string]any{"logicalLocations": []any{map[string]string{"name": f.Subject, "fullyQualifiedName": "lasa:" + s.Host.ID + ":" + f.StableSubject, "kind": "resource"}}}}, "properties": map[string]any{"confidence": f.Confidence, "exposure": f.Exposure, "priority": f.Priority, "evidence": f.Evidence, "warnings": f.Warnings}}
+		subject := v.subject(f)
+		text := f.Title + ": " + subject + "."
+		if why := v.why(f); why != "" {
+			text += " " + why + "."
+		}
+		text += " " + f.Path.ConditionalStep + " Remediation: " + f.Remediation
+		kind := v.kinds[f.Subject]
+		if kind == "" {
+			kind = "resource"
+		}
+		location := map[string]any{"logicalLocations": []any{map[string]string{"name": subject, "fullyQualifiedName": kind + ":" + subject, "kind": "resource"}}}
+		properties := map[string]any{"confidence": f.Confidence, "exposure": f.Exposure, "priority": f.Priority, "evidence": f.Evidence, "warnings": f.Warnings, "subject_id": f.Subject, "stable_subject": f.StableSubject, "host_id": s.Host.ID}
+		if file, ok := v.files[f.Subject]; ok {
+			// A host file is a real artifact location, not a fabricated
+			// source-code position.
+			location["physicalLocation"] = map[string]any{"artifactLocation": map[string]string{"uri": (&url.URL{Scheme: "file", Path: file.Path}).String()}}
+			properties["mode"] = fmt.Sprintf("%04o", file.Mode&0o7777)
+			properties["uid"] = file.UID
+			properties["gid"] = file.GID
+		}
+		r := map[string]any{"ruleId": f.RuleID, "level": level, "message": map[string]string{"text": text}, "partialFingerprints": map[string]string{"lasa/v1": f.ID}, "locations": []any{location}, "properties": properties}
 		if f.Suppressed {
 			r["suppressions"] = []any{map[string]string{"kind": "external", "justification": f.SuppressionReason, "status": "accepted"}}
 		}

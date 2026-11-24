@@ -49,10 +49,28 @@ func ExitCode(e error) int {
 	}
 	return 2
 }
+
+// cliHints are code-specific next steps for command errors. Command errors
+// do not concern collected evidence, so they carry no evidence impact.
+var cliHints = map[string]string{
+	"CONFIG_INVALID":      "Run lasa COMMAND --help for supported values.",
+	"OUTPUT_WRITE_FAILED": "Write to an existing private directory you own (or that root owns), or omit --output to write to stdout.",
+	"REPORT_READ_FAILED":  "Pass the path of a regular JSON file written by lasa scan --format json.",
+	"REPORT_INVALID":      "Pass an unmodified JSON report written by a compatible lasa scan --format json.",
+	"FINDING_NOT_FOUND":   "List finding IDs with lasa report --input REPORT; a unique prefix of at least 8 characters is accepted.",
+	"PERMISSION_DENIED":   "Run the deep profile as root (for example with sudo) only when a host-wide scan is authorized; the standard profile needs no privileges.",
+	"RESOURCE_LIMIT":      "Narrow --roots or lower --max-files/--max-processes.",
+	"REPORT_INCOMPATIBLE": "Compare two reports of the same host.",
+}
+
 func failure(code, op, target string, e error) error {
 	d := diagnostics.New("cli", op, target, e)
 	d.Code = code
 	d.Recoverable = false
+	// A wrapped engine error may already carry its code as a prefix.
+	d.Cause = strings.TrimPrefix(d.Cause, code+": ")
+	d.Impact = ""
+	d.Remediation = cliHints[code]
 	return d
 }
 func WriteError(w io.Writer, e error, jsonMode bool) {
@@ -68,6 +86,18 @@ func WriteError(w io.Writer, e error, jsonMode bool) {
 		}
 		_ = json.NewEncoder(w).Encode(d)
 	} else {
+		var d domain.Diagnostic
+		if errors.As(e, &d) && d.Component == "cli" {
+			text := fmt.Sprintf("lasa: %s: %s", d.Code, d.Cause)
+			if d.Target != "" {
+				text += " [" + d.Operation + " " + d.Target + "]"
+			}
+			_, _ = fmt.Fprintln(w, report.Safe(text))
+			if d.Remediation != "" {
+				_, _ = fmt.Fprintln(w, "  hint: "+report.Safe(d.Remediation))
+			}
+			return
+		}
 		_, _ = fmt.Fprintln(w, report.Safe(e.Error()))
 	}
 }
@@ -76,10 +106,14 @@ func New(out, errOut io.Writer) *cobra.Command {
 	root.SetOut(out)
 	root.SetErr(errOut)
 	root.PersistentFlags().String("diagnostics-format", "text", "stderr diagnostics: text or json")
+	root.PersistentFlags().String("color", "auto", "terminal color: auto (terminals only; honors NO_COLOR), always or never")
 	root.PersistentPreRunE = func(c *cobra.Command, _ []string) error {
 		f, _ := c.Flags().GetString("diagnostics-format")
 		if f != "text" && f != "json" {
 			return failure("CONFIG_INVALID", "validate", "diagnostics-format", fmt.Errorf("expected text or json"))
+		}
+		if mode, _ := c.Flags().GetString("color"); mode != "auto" && mode != "always" && mode != "never" {
+			return failure("CONFIG_INVALID", "validate", "--color", fmt.Errorf("expected auto, always or never, got %q", mode))
 		}
 		return nil
 	}
@@ -193,10 +227,10 @@ func scanCommand() *cobra.Command {
 	var strict bool
 	c := &cobra.Command{Use: "scan", Short: "Collect and correlate bounded, read-only local Linux metadata", Example: "  lasa scan\n  lasa scan --format json --output scan.json\n  lasa scan --profile container --strict --timeout 15s", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		if !validFormat(format) {
-			return failure("CONFIG_INVALID", "validate", "format", fmt.Errorf("unsupported format %q", format))
+			return failure("CONFIG_INVALID", "validate", "--format", fmt.Errorf("unsupported format %q; use terminal, json, html or sarif", format))
 		}
 		if threshold != "" && rules.SeverityRank(threshold) < 0 {
-			return failure("CONFIG_INVALID", "validate", "fail-on", fmt.Errorf("invalid severity"))
+			return failure("CONFIG_INVALID", "validate", "--fail-on", fmt.Errorf("invalid severity %q; use informational, low, medium, high or critical", threshold))
 		}
 		var p application.Policy
 		if policy != "" {
@@ -218,7 +252,7 @@ func scanCommand() *cobra.Command {
 			return failure("SCAN_FAILED", "scan", "local host", e)
 		}
 		application.ApplyPolicy(&s, p, time.Now().UTC())
-		b, e := renderReport(s, format, output, c.OutOrStdout())
+		b, e := renderReport(c, s, format, output)
 		if e != nil {
 			return renderFailure(format, e)
 		}
@@ -254,7 +288,7 @@ func reportCommand() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		b, e := renderReport(s, format, output, c.OutOrStdout())
+		b, e := renderReport(c, s, format, output)
 		if e != nil {
 			return renderFailure(format, e)
 		}
@@ -303,23 +337,7 @@ func explainCommand() *cobra.Command {
 			if format != "terminal" {
 				return fmt.Errorf("explain format must be terminal or json")
 			}
-			s.Findings = []domain.Finding{f}
-			s.Observations = obs
-			var text strings.Builder
-			text.Write(report.RenderTerminal(s, terminalOptions(c.OutOrStdout())))
-			if len(obs) > 0 {
-				text.WriteString("\nRECORDED EVIDENCE\n")
-			}
-			for _, o := range obs {
-				fmt.Fprintf(&text, "  %s  %s = %s (%s)\n    Source: %s\n", report.Safe(o.ID), report.Safe(o.Key), report.Safe(o.Value), report.Safe(string(o.State)), report.Safe(o.Source))
-			}
-			if len(eval) > 0 {
-				text.WriteString("\nRULE EVALUATIONS\n")
-			}
-			for _, v := range eval {
-				fmt.Fprintf(&text, "  %s (%s)\n", report.Safe(string(v.State)), report.Safe(v.Reason))
-			}
-			return write(c, []byte(text.String()), "")
+			return write(c, report.RenderExplanation(s, f, obs, eval, terminalOptions(c)), "")
 		}
 		return failure("FINDING_NOT_FOUND", "explain", args[0], fmt.Errorf("fingerprint is absent from report %s", input))
 	}}

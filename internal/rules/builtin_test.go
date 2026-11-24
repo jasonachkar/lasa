@@ -2,6 +2,7 @@ package rules
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,5 +71,27 @@ func TestEveryBuiltin(t *testing.T) {
 				t.Fatalf("conflict: %+v", result)
 			}
 		})
+	}
+}
+
+func TestBuiltinRulesExplainTheirOwnConsequences(t *testing.T) {
+	pack, err := Load(bytes.NewReader(builtin.YAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{}
+	for _, r := range pack {
+		if r.Scenario == "" || r.Impact == "" || r.Impact == r.Description {
+			t.Errorf("%s must describe a rule-specific scenario and an impact distinct from its description", r.ID)
+		}
+		if other, ok := seen[r.Scenario]; ok {
+			t.Errorf("%s reuses the scenario of %s", r.ID, other)
+		}
+		seen[r.Scenario] = r.ID
+		for _, p := range r.Prerequisites {
+			if strings.Contains(p, "Successful exploitation or malicious control of the affected subject") {
+				t.Errorf("%s still uses the generic prerequisite", r.ID)
+			}
+		}
 	}
 }

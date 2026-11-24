@@ -24,9 +24,12 @@ A successful report write can contain incomplete collection. `--strict` exposes 
 | `PROCESS_VANISHED` | A short-lived process disappeared during its snapshot | Expected under churn; rerun if the process matters; old findings remain uncertain |
 | `NETWORK_NAMESPACE_UNREADABLE` | No visible representative could expose a namespace table | Verify process visibility and namespace policy; the scanner cannot infer hidden sockets |
 | `NOT_FOUND` | A configured metadata path is absent or not visible | Confirm whether the feature/resource exists in this view; absence is not a blanket secure result |
-| `UNSAFE_PATH` | A path traverses a symlink or escapes its constrained root | Select a reviewed canonical path; no automatic arbitrary symlink traversal is provided |
+| `UNSAFE_PATH` | A configured path traverses a symlink or escapes its constrained root | Select the canonical path (for example the output of `realpath`); symlinks are never followed |
+| `SYMLINK_NOT_FOLLOWED` | An entry inside a root is a symbolic link; its target is recorded but not inspected | No action unless the target matters; then add its canonical path to `--roots`. Does not make coverage partial |
+| `NOT_PRESENT` | A configured root does not exist (for example `/run/docker.sock` without Docker) | No action unless the path should exist. Does not make coverage partial |
+| `NOT_SUPPORTED_BY_KERNEL` | The running kernel does not provide this control (for example SELinux on an AppArmor host) | No action. Does not make coverage partial |
 | `METADATA_ENCODING` | A path has non-UTF-8 bytes and its JSON label is lossy | Use the diagnostic's quoted byte target for exact filesystem identification |
-| `RESOURCE_LIMIT` | A configured or fixed enumeration budget was reached | Narrow scope or deliberately raise the configurable budget; inspect remaining incomplete coverage |
+| `RESOURCE_LIMIT` | A configured or fixed enumeration budget was reached, or file metadata was omitted to keep the report under 64 MiB | Narrow scope or deliberately raise the configurable budget; inspect remaining incomplete coverage |
 | `COLLECTION_FAILED` | Metadata could not be safely read or parsed | Inspect operation, target and detailed cause, including truncation/format errors |
 | `SCAN_CANCELLED` | Deadline or signal interrupted a collection phase | Increase a too-short deadline or rerun after intentional cancellation |
 | `BTF_UNAVAILABLE` | Optional sensor cannot access usable kernel BTF | Use a BTF-enabled supported host; static scans remain available |
@@ -36,7 +39,7 @@ A successful report write can contain incomplete collection. `--strict` exposes 
 | `EBPF_LOAD_FAILED` | Object, CO-RE, memory or kernel loading failure | Read the precise cause; verify BTF, helpers, map support and memory limits |
 | `EBPF_EVENTS_LOST` | Kernel buffer pressure or retained-event budget discarded events | Treat runtime coverage as incomplete; shorten windows or reduce workload/observation pressure |
 | `REPORT_READ_FAILED` / `REPORT_INVALID` | Missing, unsafe, oversized or unsupported report input | Supply the original supported JSON report through a regular non-symlink path |
-| `FINDING_NOT_FOUND` | Fingerprint is absent from the selected report | Use the full fingerprint from that scan, not its rule ID |
+| `FINDING_NOT_FOUND` | Fingerprint is absent from the selected report | Use the ID shown by `lasa report` for that scan, not its rule ID |
 | `REPORT_INCOMPATIBLE` | Reports cannot be meaningfully compared | Verify host identity and schema/profile context |
 | `OUTPUT_WRITE_FAILED` | Destination is unsafe, missing, unwritable or full | Create a private real parent directory; check filesystem capacity and ownership |
 | `DAEMON_FAILED` | State lock, persistence, retention or scan failure | Inspect the nested cause and supervisor log; avoid competing daemons in one state directory |

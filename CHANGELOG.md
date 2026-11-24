@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — readable findings and reliable coverage
+
+- Terminal output leads with a findings table (short ID, severity, priority, finding, affected resource), followed by short per-finding blocks with the observed facts, rule-specific risk and impact, fix, and a suggested command for permission findings. Diagnostics are grouped into collection gaps and items not inspected by design; caveats common to every finding appear once. Adds `--color auto|always|never`.
+- HTML reports show the affected resource, observed facts and evidence on each finding card, a severity summary and findings table, grouped diagnostics and collapsed full evidence. SARIF results name the affected resource and give file findings a `file://` location.
+- Builtin rules carry rule-specific prerequisites, scenarios and impacts; custom rules accept optional `scenario` and `impact`. Fingerprints are unchanged.
+- Sensitive files are classified by canonical location instead of name alone.
+- Policy-excluded symlinks, absent configured roots and kernel controls the kernel does not provide no longer make coverage partial.
+- `lasa diff` resolves findings verified by complete evidence collectors, regardless of unrelated gaps, and reports `unknown_reasons`.
+- Oversized scans omit unneeded file metadata instead of failing, and record the omission.
+- JSON never encodes empty collections as `null`.
+- The daemon logs new, changed and resolved findings and retention removals, and restores its baseline after a restart.
+- Command errors are one line with a specific hint and name the offending flag and its valid range.
+
 ## Unreleased — publishing and customer website
 
 Automated semantic versions and immutable Linux releases, reproducible DEBs/archives for AMD64 and ARM64, signed APT metadata and checksum-pinned Linux Homebrew formula updates. A macOS-compatible bootstrap configures scoped deployment/signing keys, protected-environment secrets, repositories, GoDaddy DNS and GitHub Pages HTTPS.

@@ -219,20 +219,50 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 	}
 	return
 }
+
+// unitDirectories are systemd unit search paths. Matching them as path
+// segments also recognizes the same layout inside a mounted image or
+// container root filesystem that is explicitly scoped.
+var unitDirectories = []string{"/etc/systemd/system/", "/run/systemd/system/", "/lib/systemd/system/", "/usr/lib/systemd/system/", "/usr/local/lib/systemd/system/"}
+
+// kind classifies a path by where the consuming program looks for it, not by
+// its name alone: a file named sudoers in an arbitrary directory is never
+// read by sudo and must not be reported as sudoers configuration.
 func kind(path string, mode uint32) string {
+	regular := mode&unix.S_IFMT == unix.S_IFREG
 	switch {
-	case mode&unix.S_IFMT == unix.S_IFREG && (filepath.Base(path) == "sudoers" || strings.Contains(path, "/sudoers.d/")):
+	case regular && isSudoers(path):
 		return "sudoers"
-	case mode&unix.S_IFMT == unix.S_IFREG && (strings.HasSuffix(path, "/authorized_keys") || strings.HasSuffix(path, "/authorized_keys2")):
+	case regular && filepath.Base(filepath.Dir(path)) == ".ssh" && (filepath.Base(path) == "authorized_keys" || filepath.Base(path) == "authorized_keys2"):
 		return "authorized_keys"
-	case mode&unix.S_IFMT == unix.S_IFREG && strings.Contains(path, "/systemd/") && (strings.HasSuffix(path, ".service") || strings.HasSuffix(path, ".conf")):
+	case regular && isUnitConfiguration(path):
 		return "service_config"
 	case mode&unix.S_IFMT == unix.S_IFSOCK && (strings.HasSuffix(path, "/docker.sock") || strings.HasSuffix(path, "/containerd.sock") || strings.HasSuffix(path, "/crio.sock") || strings.HasSuffix(path, "/podman.sock")):
 		return "runtime_socket"
 	case mode&unix.S_IFMT == unix.S_IFDIR:
 		return "directory"
-	case mode&0111 != 0 && mode&unix.S_IFMT == unix.S_IFREG:
+	case mode&0111 != 0 && regular:
 		return "executable"
 	}
 	return "other"
+}
+
+func isSudoers(path string) bool {
+	if path == "/etc/sudoers" || strings.HasSuffix(path, "/etc/sudoers") {
+		return true
+	}
+	dir := filepath.Dir(path)
+	return dir == "/etc/sudoers.d" || strings.HasSuffix(dir, "/etc/sudoers.d")
+}
+
+func isUnitConfiguration(path string) bool {
+	if !strings.HasSuffix(path, ".service") && !(strings.HasSuffix(path, ".conf") && strings.HasSuffix(filepath.Dir(path), ".service.d")) {
+		return false
+	}
+	for _, dir := range unitDirectories {
+		if strings.HasPrefix(path, dir) || strings.Contains(path, dir) {
+			return true
+		}
+	}
+	return false
 }
