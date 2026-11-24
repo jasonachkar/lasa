@@ -79,3 +79,17 @@ func TestDecodeRejectsAmbiguousJSONNames(t *testing.T) {
 		}
 	}
 }
+
+func TestJSONExportNeverEncodesEmptyCollectionsAsNull(t *testing.T) {
+	s := domain.Snapshot{Schema: domain.SchemaVersion, ScanID: "s", Host: domain.Host{ID: "h"},
+		Processes: []domain.Process{{ID: "p"}}, Findings: []domain.Finding{{ID: "f", Severity: "low"}}}
+	for _, format := range []string{"json", "sarif"} {
+		raw, e := Render(s, format)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if strings.Contains(string(raw), "null") {
+			t.Fatalf("%s export encodes an empty collection as null", format)
+		}
+	}
+}

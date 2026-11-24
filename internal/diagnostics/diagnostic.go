@@ -31,6 +31,31 @@ func New(component, operation, target string, err error) domain.Diagnostic {
 	}
 	return d
 }
+
+// Expected codes describe established absences rather than visibility gaps.
+// They are counted as unsupported work, which does not make coverage
+// incomplete, and renderers present them separately from collection gaps.
+const (
+	CodeNotPresent         = "NOT_PRESENT"
+	CodeSymlinkNotFollowed = "SYMLINK_NOT_FOLLOWED"
+	CodeNotSupported       = "NOT_SUPPORTED_BY_KERNEL"
+)
+
+// IsExpected reports whether a diagnostic code records an established,
+// policy- or platform-defined absence instead of missing evidence.
+func IsExpected(code string) bool {
+	switch code {
+	case CodeNotPresent, CodeSymlinkNotFollowed, CodeNotSupported:
+		return true
+	}
+	return false
+}
+
+// Expected records an established absence with a code-specific explanation.
+func Expected(code, component, operation, target, cause, impact, remediation string) domain.Diagnostic {
+	return domain.Diagnostic{Code: code, Component: component, Operation: operation, Target: target, Cause: cause, Impact: impact, Remediation: remediation, Recoverable: true}
+}
+
 func Limit(component, target string) domain.Diagnostic {
 	return domain.Diagnostic{Code: "RESOURCE_LIMIT", Component: component, Operation: "enumerate", Target: target, Cause: "Configured resource budget reached", Impact: "Uninspected assets remain unknown; coverage is incomplete.", Remediation: "Narrow the scan scope or raise the documented budget deliberately.", Recoverable: true}
 }

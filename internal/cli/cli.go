@@ -169,6 +169,13 @@ func write(c *cobra.Command, b []byte, path string) error {
 	}
 	return nil
 }
+func renderFailure(format string, e error) error {
+	code := "RENDER_FAILED"
+	if errors.Is(e, report.ErrExportLimit) {
+		code = "RESOURCE_LIMIT"
+	}
+	return failure(code, "render", format+" report", e)
+}
 func readReport(path string) (domain.Snapshot, error) {
 	b, e := storage.Read(path, report.MaxInput)
 	if e != nil {
@@ -213,7 +220,7 @@ func scanCommand() *cobra.Command {
 		application.ApplyPolicy(&s, p, time.Now().UTC())
 		b, e := renderReport(s, format, output, c.OutOrStdout())
 		if e != nil {
-			return e
+			return renderFailure(format, e)
 		}
 		if e = write(c, b, output); e != nil {
 			return e
@@ -249,7 +256,7 @@ func reportCommand() *cobra.Command {
 		}
 		b, e := renderReport(s, format, output, c.OutOrStdout())
 		if e != nil {
-			return e
+			return renderFailure(format, e)
 		}
 		return write(c, b, output)
 	}}

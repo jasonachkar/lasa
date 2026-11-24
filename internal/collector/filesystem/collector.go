@@ -61,8 +61,26 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 		b.Coverage.Attempted++
 		h, e := linux.Open("/", strings.TrimPrefix(it.path, "/"), unix.O_PATH|unix.O_NOFOLLOW)
 		if e != nil {
-			b.Diagnostics = append(b.Diagnostics, diagnostics.New("filesystem", "open_metadata", it.path, e))
-			b.Coverage.Inconclusive++
+			switch {
+			case it.depth == 0 && errors.Is(e, unix.ENOENT):
+				// A configured root that does not exist is an established
+				// absence, not a visibility gap (for example /run/docker.sock
+				// on a host without Docker).
+				b.Diagnostics = append(b.Diagnostics, diagnostics.Expected(diagnostics.CodeNotPresent, "filesystem", "open_metadata", it.path,
+					"configured root does not exist in this mount namespace",
+					"Nothing exists at this path to inspect; no rule can match it.",
+					"No action is needed unless the path is expected to exist; check the spelling of explicit --roots."))
+				b.Coverage.Unsupported++
+			case errors.Is(e, unix.ELOOP):
+				d := diagnostics.New("filesystem", "open_metadata", it.path, e)
+				d.Cause = "path traverses a symbolic link; LASA never follows symbolic links"
+				d.Remediation = "Use the canonical path (for example the output of realpath) as an explicit root."
+				b.Diagnostics = append(b.Diagnostics, d)
+				b.Coverage.Inconclusive++
+			default:
+				b.Diagnostics = append(b.Diagnostics, diagnostics.New("filesystem", "open_metadata", it.path, e))
+				b.Coverage.Inconclusive++
+			}
 			continue
 		}
 		var st unix.Stat_t
@@ -75,8 +93,14 @@ func (c Collector) Collect(ctx context.Context) (b domain.Batch) {
 		}
 		if st.Mode&unix.S_IFMT == unix.S_IFLNK {
 			_ = h.Close()
-			b.Diagnostics = append(b.Diagnostics, diagnostics.New("filesystem", "inspect", it.path, unix.ELOOP))
-			b.Coverage.Skipped++
+			cause := "symbolic link; links are not followed by policy"
+			if target, le := (linux.FS{Root: "/"}).Readlink(strings.TrimPrefix(it.path, "/")); le == nil {
+				cause = "symbolic link to " + target + "; links are not followed by policy"
+			}
+			b.Diagnostics = append(b.Diagnostics, diagnostics.Expected(diagnostics.CodeSymlinkNotFollowed, "filesystem", "inspect", it.path, cause,
+				"The link is recorded as excluded; its target is not inspected through this path.",
+				"Add the canonical target path to --roots if it is relevant to the review."))
+			b.Coverage.Unsupported++
 			continue
 		}
 		f := domain.File{ID: domain.Hash(c.HostID, it.path), Path: it.path, Inode: st.Ino, Device: uint64(st.Dev), Mode: st.Mode, UID: st.Uid, GID: st.Gid, ACL: domain.Unknown, ReadOnly: domain.Unknown, Kind: kind(it.path, st.Mode)}

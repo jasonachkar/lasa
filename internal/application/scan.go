@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -24,6 +25,9 @@ type Engine struct {
 	Stages      []Stage
 	Rules       []rules.Rule
 	Diagnostics []domain.Diagnostic
+	// ExportLimit overrides the JSON export size budget; zero uses the
+	// report reader limit.
+	ExportLimit int
 }
 
 func (e Engine) Scan(parent context.Context, c config.Config) (domain.Snapshot, error) {
@@ -77,17 +81,53 @@ func (e Engine) Scan(parent context.Context, c config.Config) (domain.Snapshot, 
 			}
 		}
 	}
-	if _, err := graph.Build(&s); err != nil {
-		return s, fmt.Errorf("GRAPH_INVALID: %w", err)
+	collected := cloneCollected(s)
+	if err := e.analyze(&s); err != nil {
+		return s, err
 	}
-	correlation.Evaluate(&s, e.Rules)
+	fitted, err := e.fitExport(collected, s)
+	if err != nil {
+		return s, err
+	}
+	fitted.Completed = time.Now().UTC()
+	return fitted, nil
+}
+
+// analyze derives graph relationships and evaluates rules over collected
+// evidence. It is deterministic for a given collected snapshot.
+func (e Engine) analyze(s *domain.Snapshot) error {
+	if _, err := graph.Build(s); err != nil {
+		return fmt.Errorf("GRAPH_INVALID: %w", err)
+	}
+	correlation.Evaluate(s, e.Rules)
 	sort.Slice(s.Diagnostics, func(i, j int) bool {
 		a, b := s.Diagnostics[i], s.Diagnostics[j]
 		return a.Component+a.Target+a.Operation+a.Code < b.Component+b.Target+b.Operation+b.Code
 	})
 	s.Sort()
-	s.Completed = time.Now().UTC()
-	return s, nil
+	return nil
+}
+
+// cloneCollected copies the collected evidence before analysis mutates and
+// sorts it, so the analysis can be repeated over a reduced file scope.
+func cloneCollected(s domain.Snapshot) domain.Snapshot {
+	c := s
+	c.Processes = slices.Clone(s.Processes)
+	c.Sockets = slices.Clone(s.Sockets)
+	c.Interfaces = slices.Clone(s.Interfaces)
+	c.Mounts = slices.Clone(s.Mounts)
+	c.Files = slices.Clone(s.Files)
+	c.Services = slices.Clone(s.Services)
+	c.Containers = slices.Clone(s.Containers)
+	c.Controls = slices.Clone(s.Controls)
+	c.Observations = slices.Clone(s.Observations)
+	c.RuntimeEvents = slices.Clone(s.RuntimeEvents)
+	c.Diagnostics = slices.Clone(s.Diagnostics)
+	c.Coverage = slices.Clone(s.Coverage)
+	c.Graph = domain.Graph{}
+	c.Findings = nil
+	c.Evaluations = nil
+	return c
 }
 func merge(s *domain.Snapshot, b domain.Batch) {
 	s.RuntimeEvents = append(s.RuntimeEvents, b.RuntimeEvents...)
