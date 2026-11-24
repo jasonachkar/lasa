@@ -57,7 +57,8 @@ var cliHints = map[string]string{
 	"OUTPUT_WRITE_FAILED": "Write to an existing private directory you own (or that root owns), or omit --output to write to stdout.",
 	"REPORT_READ_FAILED":  "Pass the path of a regular JSON file written by lasa scan --format json.",
 	"REPORT_INVALID":      "Pass an unmodified JSON report written by a compatible lasa scan --format json.",
-	"FINDING_NOT_FOUND":   "List finding IDs with lasa report --input REPORT; a unique prefix of at least 8 characters is accepted.",
+	"FINDING_NOT_FOUND":   "List finding IDs with lasa report --input REPORT; a unique prefix of at least 6 characters is accepted.",
+	"FINDING_AMBIGUOUS":   "Use one of the listed IDs or a longer prefix.",
 	"PERMISSION_DENIED":   "Run the deep profile as root (for example with sudo) only when a host-wide scan is authorized; the standard profile needs no privileges.",
 	"RESOURCE_LIMIT":      "Narrow --roots or lower --max-files/--max-processes.",
 	"REPORT_INCOMPATIBLE": "Compare two reports of the same host.",
@@ -117,7 +118,7 @@ func New(out, errOut io.Writer) *cobra.Command {
 		}
 		return nil
 	}
-	root.AddCommand(scanCommand(), doctorCommand(), reportCommand(), explainCommand(), diffCommand(), rulesCommand(), daemonCommand(), &cobra.Command{Use: "version", Short: "Print scanner version", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+	root.AddCommand(manCommand(), scanCommand(), doctorCommand(), reportCommand(), explainCommand(), diffCommand(), rulesCommand(), daemonCommand(), &cobra.Command{Use: "version", Short: "Print scanner version", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		_, e := fmt.Fprintln(c.OutOrStdout(), domain.Version)
 		return e
 	}})
@@ -168,7 +169,16 @@ func configFlags(c *cobra.Command, cfg *config.Config) {
 func validFormat(format string) bool {
 	return format == "json" || format == "terminal" || format == "html" || format == "sarif"
 }
-func prepare(c config.Config, path string) (application.Engine, error) {
+func prepare(c *config.Config, path string) (application.Engine, error) {
+	// Relative roots are resolved against the working directory; absolute
+	// roots must already be normalized so traversal is never rewritten.
+	for i, root := range c.Roots {
+		if root != "" && !filepath.IsAbs(root) {
+			if absolute, e := filepath.Abs(root); e == nil {
+				c.Roots[i] = absolute
+			}
+		}
+	}
 	if e := c.Validate(); e != nil {
 		return application.Engine{}, failure("CONFIG_INVALID", "validate", "scan configuration", e)
 	}
@@ -176,7 +186,7 @@ func prepare(c config.Config, path string) (application.Engine, error) {
 	if e != nil {
 		return application.Engine{}, e
 	}
-	engine, e := application.Linux(c, pack)
+	engine, e := application.Linux(*c, pack)
 	if e != nil {
 		var diagnostic domain.Diagnostic
 		if errors.As(e, &diagnostic) {
@@ -210,8 +220,21 @@ func renderFailure(format string, e error) error {
 	}
 	return failure(code, "render", format+" report", e)
 }
-func readReport(path string) (domain.Snapshot, error) {
-	b, e := storage.Read(path, report.MaxInput)
+
+// readReport reads a saved JSON report from a regular file, or from standard
+// input when path is "-", with the same size limit and validation.
+func readReport(c *cobra.Command, path string) (domain.Snapshot, error) {
+	var b []byte
+	var e error
+	if path == "-" {
+		b, e = io.ReadAll(io.LimitReader(c.InOrStdin(), report.MaxInput+1))
+		if e == nil && len(b) > report.MaxInput {
+			e = fmt.Errorf("input exceeds %d bytes", report.MaxInput)
+		}
+		path = "standard input"
+	} else {
+		b, e = storage.Read(path, report.MaxInput)
+	}
 	if e != nil {
 		return domain.Snapshot{}, failure("REPORT_READ_FAILED", "read_report", path, e)
 	}
@@ -243,7 +266,7 @@ func scanCommand() *cobra.Command {
 				return failure("CONFIG_INVALID", "parse_policy", policy, e)
 			}
 		}
-		engine, e := prepare(cfg, custom)
+		engine, e := prepare(&cfg, custom)
 		if e != nil {
 			return e
 		}
@@ -284,7 +307,7 @@ func scanCommand() *cobra.Command {
 func reportCommand() *cobra.Command {
 	var input, format, output string
 	c := &cobra.Command{Use: "report", Short: "Render a saved report without rescanning", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		s, e := readReport(input)
+		s, e := readReport(c, input)
 		if e != nil {
 			return e
 		}
@@ -294,7 +317,7 @@ func reportCommand() *cobra.Command {
 		}
 		return write(c, b, output)
 	}}
-	c.Flags().StringVar(&input, "input", "", "saved JSON report")
+	c.Flags().StringVar(&input, "input", "", "saved JSON report, or - for standard input")
 	c.Flags().StringVar(&format, "format", "terminal", "terminal, json, html or sarif")
 	c.Flags().StringVar(&output, "output", "", "private atomic destination")
 	_ = c.MarkFlagRequired("input")
@@ -302,15 +325,16 @@ func reportCommand() *cobra.Command {
 }
 func explainCommand() *cobra.Command {
 	var input, format string
-	c := &cobra.Command{Use: "explain <finding-id>", Short: "Explain a finding and its recorded evidence", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
-		s, e := readReport(input)
+	c := &cobra.Command{Use: "explain <finding-id>", Short: "Explain a finding and its recorded evidence", Long: "Explain a finding and its recorded evidence.\n\nThe finding can be named by its full fingerprint, a unique prefix of at least 6 characters (as shown by lasa report), or its rule ID when the report has exactly one finding for that rule. Use --report - to read the report from standard input.", Example: "  lasa explain 5601ae00 --report host.report.json\n  lasa explain LASA-013 --report host.report.json --format json", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
+		s, e := readReport(c, input)
 		if e != nil {
 			return e
 		}
-		for _, f := range s.Findings {
-			if f.ID != args[0] {
-				continue
-			}
+		f, e := findFinding(s, args[0], input)
+		if e != nil {
+			return e
+		}
+		{
 			ids := map[string]bool{}
 			for _, id := range f.Evidence {
 				ids[id] = true
@@ -339,20 +363,29 @@ func explainCommand() *cobra.Command {
 			}
 			return write(c, report.RenderExplanation(s, f, obs, eval, terminalOptions(c)), "")
 		}
-		return failure("FINDING_NOT_FOUND", "explain", args[0], fmt.Errorf("fingerprint is absent from report %s", input))
 	}}
-	c.Flags().StringVar(&input, "report", "", "saved JSON report")
+	c.Flags().StringVar(&input, "report", "", "saved JSON report, or - for standard input")
 	c.Flags().StringVar(&format, "format", "terminal", "terminal or json")
 	_ = c.MarkFlagRequired("report")
 	return c
 }
 func diffCommand() *cobra.Command {
-	return &cobra.Command{Use: "diff <previous-report> <current-report>", Short: "Compare fingerprints without treating missing evidence as resolution", Args: cobra.ExactArgs(2), RunE: func(c *cobra.Command, args []string) error {
-		a, e := readReport(args[0])
+	var format, failOnNew string
+	c := &cobra.Command{Use: "diff <previous-report> <current-report>", Short: "Compare fingerprints without treating missing evidence as resolution", Example: "  lasa diff before.json after.json\n  lasa diff before.json after.json --format terminal\n  lasa diff before.json after.json --fail-on-new high", Args: cobra.ExactArgs(2), RunE: func(c *cobra.Command, args []string) error {
+		if format != "json" && format != "terminal" {
+			return failure("CONFIG_INVALID", "validate", "--format", fmt.Errorf("unsupported format %q; use json or terminal", format))
+		}
+		if failOnNew != "" && rules.SeverityRank(failOnNew) < 0 {
+			return failure("CONFIG_INVALID", "validate", "--fail-on-new", fmt.Errorf("invalid severity %q; use informational, low, medium, high or critical", failOnNew))
+		}
+		if args[0] == "-" && args[1] == "-" {
+			return failure("CONFIG_INVALID", "validate", "diff inputs", fmt.Errorf("only one report can be read from standard input"))
+		}
+		a, e := readReport(c, args[0])
 		if e != nil {
 			return e
 		}
-		b, e := readReport(args[1])
+		b, e := readReport(c, args[1])
 		if e != nil {
 			return e
 		}
@@ -360,12 +393,25 @@ func diffCommand() *cobra.Command {
 		if e != nil {
 			return failure("REPORT_INCOMPATIBLE", "diff", "reports", e)
 		}
-		raw, e := json.MarshalIndent(d, "", "  ")
-		if e != nil {
+		var raw []byte
+		if format == "terminal" {
+			raw = report.RenderDiff(a, b, report.DiffView{New: d.New, Changed: d.Changed, Resolved: d.Resolved, Unknown: d.Unknown, Continuing: len(d.Continuing), UnknownReasons: d.UnknownReasons}, terminalOptions(c))
+		} else if raw, e = json.MarshalIndent(d, "", "  "); e != nil {
 			return e
 		}
-		return write(c, raw, "")
+		if e = write(c, raw, ""); e != nil {
+			return e
+		}
+		for _, f := range d.New {
+			if failOnNew != "" && !f.Suppressed && rules.SeverityRank(f.Severity) >= rules.SeverityRank(failOnNew) {
+				return &ExitError{1, nil}
+			}
+		}
+		return nil
 	}}
+	c.Flags().StringVar(&format, "format", "json", "json or terminal")
+	c.Flags().StringVar(&failOnNew, "fail-on-new", "", "exit 1 when a new unsuppressed finding is at or above this severity")
+	return c
 }
 func rulesCommand() *cobra.Command {
 	root := &cobra.Command{Use: "rules", Short: "Inspect reviewed builtin and explicitly supplied local rules"}
@@ -383,7 +429,7 @@ func rulesCommand() *cobra.Command {
 			return write(c, b, "")
 		}
 		if format != "terminal" {
-			return fmt.Errorf("format must be json or terminal")
+			return failure("CONFIG_INVALID", "validate", "--format", fmt.Errorf("unsupported format %q; use terminal or json", format))
 		}
 		for _, r := range pack {
 			if _, e = fmt.Fprintf(c.OutOrStdout(), "%s v%s [%s/%s] %s\n  %s\n", report.Safe(r.ID), r.Version, report.Safe(r.Category), r.Severity, report.Safe(r.Title), report.Safe(r.Description)); e != nil {
@@ -394,7 +440,43 @@ func rulesCommand() *cobra.Command {
 	}}
 	c.Flags().StringVar(&format, "format", "terminal", "terminal or json")
 	c.Flags().StringVar(&path, "rules", "", "explicit additional local YAML pack")
-	root.AddCommand(c)
+	validate := &cobra.Command{Use: "validate <pack.yaml>", Short: "Check a local rule pack without scanning", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
+		builtinPack, e := loadRules("")
+		if e != nil {
+			return e
+		}
+		pack, e := loadRules(args[0])
+		if e != nil {
+			return e
+		}
+		ids := make([]string, 0, len(pack)-len(builtinPack))
+		for _, r := range pack[len(builtinPack):] {
+			ids = append(ids, r.ID)
+		}
+		_, e = fmt.Fprintf(c.OutOrStdout(), "%s: valid, %d custom rules (%s) alongside %d builtin rules\n", report.Safe(args[0]), len(ids), report.Safe(strings.Join(ids, ", ")), len(builtinPack))
+		return e
+	}}
+	var predicateFormat string
+	predicates := &cobra.Command{Use: "predicates", Short: "List predicates available to rule conditions", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		list := rules.Predicates()
+		if predicateFormat == "json" {
+			b, e := json.MarshalIndent(list, "", "  ")
+			if e != nil {
+				return e
+			}
+			return write(c, b, "")
+		}
+		if predicateFormat != "terminal" {
+			return failure("CONFIG_INVALID", "validate", "--format", fmt.Errorf("unsupported format %q; use terminal or json", predicateFormat))
+		}
+		var b strings.Builder
+		for _, p := range list {
+			fmt.Fprintf(&b, "%-27s %-7s %-7s %s\n", p.Name, p.Subject, p.Type, p.Description)
+		}
+		return write(c, []byte(strings.TrimSuffix(b.String(), "\n")), "")
+	}}
+	predicates.Flags().StringVar(&predicateFormat, "format", "terminal", "terminal or json")
+	root.AddCommand(c, validate, predicates)
 	return root
 }
 func daemonCommand() *cobra.Command {
@@ -403,7 +485,7 @@ func daemonCommand() *cobra.Command {
 	var interval time.Duration
 	var retention int
 	c := &cobra.Command{Use: "daemon", Short: "Run sequential scheduled scans with private atomic snapshots", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		engine, e := prepare(cfg, custom)
+		engine, e := prepare(&cfg, custom)
 		if e != nil {
 			return e
 		}
@@ -441,4 +523,36 @@ func daemonCommand() *cobra.Command {
 	c.Flags().StringVar(&custom, "rules", "", "explicit local custom rule pack")
 	c.Flags().StringVar(&policy, "suppressions", "", "local suppression policy, loaded at startup")
 	return c
+}
+
+// findFinding resolves a full fingerprint, a unique case-insensitive prefix of
+// at least six characters, or a rule ID with exactly one finding.
+func findFinding(s domain.Snapshot, query, source string) (domain.Finding, error) {
+	q := strings.ToLower(strings.TrimSpace(query))
+	var matches []domain.Finding
+	for _, f := range s.Findings {
+		if strings.ToLower(f.ID) == q {
+			return f, nil
+		}
+	}
+	for _, f := range s.Findings {
+		if strings.EqualFold(f.RuleID, q) || len(q) >= 6 && strings.HasPrefix(strings.ToLower(f.ID), q) {
+			matches = append(matches, f)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		if len(q) < 6 {
+			return domain.Finding{}, failure("FINDING_NOT_FOUND", "explain", query, fmt.Errorf("no finding or rule ID matches in %s; prefixes need at least 6 characters", source))
+		}
+		return domain.Finding{}, failure("FINDING_NOT_FOUND", "explain", query, fmt.Errorf("no finding matches in %s", source))
+	}
+	short := report.ShortIDs(matches)
+	var ids []string
+	for _, f := range matches[:min(10, len(matches))] {
+		ids = append(ids, short[f.ID])
+	}
+	return domain.Finding{}, failure("FINDING_AMBIGUOUS", "explain", query, fmt.Errorf("%d findings match: %s", len(matches), strings.Join(ids, ", ")))
 }

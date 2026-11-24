@@ -53,3 +53,14 @@ func TestInvalidNumericEvidenceStaysUnknown(t *testing.T) {
 		}
 	}
 }
+
+func TestEveryRegisteredPredicateIsDocumented(t *testing.T) {
+	if len(predicateDocs) != len(registry) {
+		t.Fatalf("predicate docs (%d) and registry (%d) differ", len(predicateDocs), len(registry))
+	}
+	for _, p := range Predicates() {
+		if p.Description == "" || (p.Subject != "process" && p.Subject != "file") {
+			t.Errorf("predicate %s lacks a description or subject", p.Name)
+		}
+	}
+}

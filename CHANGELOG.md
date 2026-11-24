@@ -12,6 +12,12 @@
 - JSON never encodes empty collections as `null`.
 - The daemon logs new, changed and resolved findings and retention removals, and restores its baseline after a restart.
 - Command errors are one line with a specific hint and name the offending flag and its valid range.
+- `lasa explain` accepts unique ID prefixes and rule IDs; `report`, `explain` and `diff` read `-` from standard input; `lasa diff` adds `--format terminal` and `--fail-on-new`.
+- `lasa doctor` checks `openat2` and identifies WSL2, gVisor and container environments.
+- `lasa rules validate` and `lasa rules predicates`, plus a custom rules guide.
+- Packages install a `lasa(1)` manual page and bash, zsh and fish completions; packaged documentation links work offline.
+- Scans run through sudo can write to the invoking user's private directory and assign the report to that user. Relative `--roots` resolve against the working directory.
+- A test keeps customer documentation from describing commands or flags the binary does not provide.
 
 ## Unreleased — publishing and customer website
 

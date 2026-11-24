@@ -60,3 +60,25 @@ func TestReadLimit(t *testing.T) {
 		t.Fatal("oversize input accepted")
 	}
 }
+
+func TestOutputOwnerTrust(t *testing.T) {
+	for _, tc := range []struct {
+		owner   uint32
+		euid    int
+		sudoUID string
+		want    bool
+	}{
+		{1000, 1000, "", true},   // own directory
+		{0, 1000, "", true},      // root-owned directory
+		{1001, 1000, "", false},  // another user's directory
+		{1000, 0, "1000", true},  // sudo scan into the invoking user's directory
+		{1001, 0, "1000", false}, // sudo scan into a third user's directory
+		{1000, 0, "", false},     // root without sudo context
+		{1000, 0, "not-a-uid", false},
+		{1000, 1001, "1000", false}, // SUDO_UID is ignored unless running as root
+	} {
+		if got := ownerAllowed(tc.owner, tc.euid, tc.sudoUID); got != tc.want {
+			t.Errorf("%+v: got %t", tc, got)
+		}
+	}
+}

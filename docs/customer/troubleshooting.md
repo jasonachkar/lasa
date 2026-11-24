@@ -39,7 +39,9 @@ A successful report write can contain incomplete collection. `--strict` exposes 
 | `EBPF_LOAD_FAILED` | Object, CO-RE, memory or kernel loading failure | Read the precise cause; verify BTF, helpers, map support and memory limits |
 | `EBPF_EVENTS_LOST` | Kernel buffer pressure or retained-event budget discarded events | Treat runtime coverage as incomplete; shorten windows or reduce workload/observation pressure |
 | `REPORT_READ_FAILED` / `REPORT_INVALID` | Missing, unsafe, oversized or unsupported report input | Supply the original supported JSON report through a regular non-symlink path |
-| `FINDING_NOT_FOUND` | Fingerprint is absent from the selected report | Use the ID shown by `lasa report` for that scan, not its rule ID |
+| `FINDING_NOT_FOUND` | No finding, unique prefix or rule ID matches in the selected report | Use the ID shown by `lasa report` for that scan; prefixes need at least 6 characters |
+| `FINDING_AMBIGUOUS` | A prefix or rule ID matches several findings | Use one of the listed IDs or a longer prefix |
+| `OUTPUT_WRITE_FAILED` | The destination directory is missing, shared with other users or owned by someone else | Write to a private directory you own; under sudo, your own private directory is accepted |
 | `REPORT_INCOMPATIBLE` | Reports cannot be meaningfully compared | Verify host identity and schema/profile context |
 | `OUTPUT_WRITE_FAILED` | Destination is unsafe, missing, unwritable or full | Create a private real parent directory; check filesystem capacity and ownership |
 | `DAEMON_FAILED` | State lock, persistence, retention or scan failure | Inspect the nested cause and supervisor log; avoid competing daemons in one state directory |

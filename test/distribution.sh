@@ -25,6 +25,10 @@ for arch in amd64 arm64; do
   dpkg-deb -x "$package" "$temp/extracted-$arch"
   [[ -x "$temp/extracted-$arch/usr/bin/lasa" ]]
   [[ ! -e "$temp/extracted-$arch/lib/systemd/system/lasa.service" ]]
+  gzip -dc "$temp/extracted-$arch/usr/share/man/man1/lasa.1.gz" | grep -q '^.SH EXIT STATUS'
+  grep -q 'lasa' "$temp/extracted-$arch/usr/share/bash-completion/completions/lasa"
+  [[ -s "$temp/extracted-$arch/usr/share/zsh/vendor-completions/_lasa" && -s "$temp/extracted-$arch/usr/share/fish/vendor_completions.d/lasa.fish" ]]
+  if grep -rq '](\.\./' "$temp/extracted-$arch/usr/share/doc/lasa"; then echo 'Packaged documentation has broken relative links' >&2; exit 1; fi
   cmp "$temp/extracted-$arch/usr/bin/lasa" "dist/lasa-$version-linux-$arch"
   tar -xzf "dist/lasa-$version-linux-$arch.tar.gz" -C "$temp/control-$arch"
   cmp "$temp/control-$arch/bin/lasa" "dist/lasa-$version-linux-$arch"

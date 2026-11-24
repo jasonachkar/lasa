@@ -100,7 +100,10 @@ func Load(r io.Reader) ([]Rule, error) {
 		return nil, fmt.Errorf("exactly one YAML document is required")
 	}
 	if p.Schema != Schema {
-		return nil, fmt.Errorf("unsupported rules schema %q", p.Schema)
+		if p.Schema == "" {
+			return nil, fmt.Errorf("rule pack must declare its schema on the first line: schema: %s", Schema)
+		}
+		return nil, fmt.Errorf("unsupported rules schema %q; use %s", p.Schema, Schema)
 	}
 	if len(p.Rules) > 256 {
 		return nil, fmt.Errorf("at most 256 rules are allowed")
