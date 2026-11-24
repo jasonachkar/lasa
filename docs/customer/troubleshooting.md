@@ -72,10 +72,8 @@ The scanner does not automatically upgrade native tools, change firewall policy,
 
 ## Package-manager installation
 
-If APT reports `Unable to locate package lasa`, or another manager reports no matching package, enable LASA's signed repository using [installation](installation.md). `apt install` cannot find a package in an unconfigured repository. Run the setup script only after the repository has been published; a website being available does not establish that a package release completed.
+If APT reports `Unable to locate package lasa`, follow the [installation guide](installation.md#configure-your-linux-package-manager) to configure the LASA repository and install the package. Use the guide's `install-apt.sh` URL for Debian or Ubuntu. The [release page](https://github.com/jasonachkar/lasa/releases) lists the published versions and downloads.
 
-If a repository/index URL returns 404, check the source URL, architecture, release/publishing status and HTTPS certificate. The generated `https://lasa.secureobs.com/distribution.json` identifies the published native formats/version. During a new deployment, stale CDN caches can briefly disagree; retry after propagation rather than disabling verification.
+Key fingerprint mismatches, invalid metadata signatures and package hash errors are trust failures. Keep the diagnostic and expected fingerprint, check proxy or cache behavior, and contact your repository administrator.
 
-Key fingerprint/hash mismatches, invalid metadata signatures, missing package signatures and package-hash errors are fatal trust failures. Retain the diagnostic and expected fingerprint, check proxy/cache behavior and contact your repository administrator. Do not use `--nogpgcheck`, `--allow-untrusted`, insecure TLS or a replacement key from an unverified message. The setup script stops at conflicting LASA-owned configuration files so an administrator can review ownership.
-
-The Arch setup performs a full upgrade to avoid partial upgrades. Package installation does not start a scanner. If an installed binary fails `lasa doctor`, inspect kernel/syscall/seccomp/procfs support separately from package availability. See [compatibility](compatibility.md).
+If an installed binary fails `lasa doctor`, check kernel, syscall, seccomp and procfs support. See [compatibility](compatibility.md).
