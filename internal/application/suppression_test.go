@@ -29,3 +29,15 @@ func TestSuppressionJustificationAndExpiry(t *testing.T) {
 		}
 	}
 }
+
+func TestSuppressionRejectsAmbiguousJSONNames(t *testing.T) {
+	for _, raw := range []string{
+		`{"schema":"lasa.suppressions/v1","entries":[],"entries":[]}`,
+		`{"schema":"lasa.suppressions/v1","entries":[],"Entries":[]}`,
+		`{"schema":"lasa.suppressions/v1","entries":[]} {}`,
+	} {
+		if _, err := ParsePolicy([]byte(raw)); err == nil {
+			t.Fatal("ambiguous suppression policy accepted")
+		}
+	}
+}

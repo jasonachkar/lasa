@@ -67,3 +67,15 @@ func TestRejectsDanglingGraphAndFinding(t *testing.T) {
 		t.Fatal("dangling graph accepted")
 	}
 }
+
+func TestDecodeRejectsAmbiguousJSONNames(t *testing.T) {
+	for _, raw := range []string{
+		`{"schema":"lasa.report/v1","scan_id":"scan","host":{"id":"first","id":"second"}}`,
+		`{"schema":"lasa.report/v1","scan_id":"scan","host":{"id":"first","ID":"second"}}`,
+		`{"schema":"lasa.report/v1","scan_id":"scan","host":{"id":"first"}} {}`,
+	} {
+		if _, err := Decode([]byte(raw)); err == nil {
+			t.Fatal("ambiguous snapshot accepted")
+		}
+	}
+}

@@ -20,7 +20,11 @@ try:
     latest = [item["version"] for item in versions if "latest" in item.get("aliases", [])]
     if len(latest) > 1:
         raise ValueError("The existing site has multiple latest aliases")
-    if latest and requested < semver(latest[0]):
-        raise ValueError(f"Refusing to roll back documentation from {latest[0]} to {sys.argv[1]}")
+    published = [(semver(item["version"]), item["version"]) for item in versions
+                 if item["version"] not in {"current", "preview"}]
+    if published:
+        newest, newest_label = max(published)
+        if requested < newest:
+            raise ValueError(f"Refusing to roll back documentation from {newest_label} to {sys.argv[1]}")
 except (ValueError, KeyError, TypeError, OSError, IndexError) as error:
     raise SystemExit(f"Documentation version validation failed: {error}")

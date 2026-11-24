@@ -8,6 +8,9 @@ import (
 
 func TestAtomicPrivate(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	p := filepath.Join(dir, "report.json")
 	if e := Atomic(p, []byte("one")); e != nil {
 		t.Fatal(e)
@@ -45,7 +48,11 @@ func TestAtomicPrivate(t *testing.T) {
 	}
 }
 func TestReadLimit(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "x")
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "x")
 	if e := Atomic(p, []byte("1234")); e != nil {
 		t.Fatal(e)
 	}

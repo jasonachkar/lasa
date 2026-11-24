@@ -4,7 +4,7 @@
 
 ## Toolchain and workspace
 
-Use supported Go **1.27.2**. Normal binaries use `CGO_ENABLED=0`, Linux AMD64/ARM64, trimmed paths and no build timestamp. Native Linux tests use the real kernel; a C compiler is required for Go's race detector. Keep Go checksum/TLS verification enabled. `go.mod` and `go.sum` pin modules; `tools/dependencies.allow` defines modules linked into the scanner binary.
+Use supported Go **1.27.4**. Normal binaries use `CGO_ENABLED=0`, Linux AMD64/ARM64, trimmed paths and no build timestamp. Native Linux tests use the real kernel; a C compiler is required for Go's race detector. Keep Go checksum/TLS verification enabled. `go.mod` and `go.sum` pin modules; `tools/dependencies.allow` defines modules linked into the scanner binary.
 
 Use the existing checkout in an isolated cloud task. Do not create an additional Git worktree unless requested. Retained binaries, dependencies and source files do not imply a daemon or BPF links will survive a task restart. Restart services explicitly using documented commands and verify their output.
 
@@ -62,7 +62,7 @@ See [publishing from a Mac](publishing.md) for the current automatic semantic-ve
 
 `ci.yml` configures native AMD64 and ARM64 Linux runners for formatting, vetting, tests, race, staticcheck, dependency allowlist/checksum verification, vulnerability scanning, fuzz smoke and repeated-build comparison. It builds architecture-appropriate container images and exercises doctor/scan/report in a read-only no-capability container view. Another job regenerates BPF with the pinned builder.
 
-`privileged.yml` is manual, dedicated-runner-only and environment-gated. `release.yml` runs on version tags, checks that the tag agrees with the binary's version, builds/checks binaries, creates SBOMs/checksums, requests GitHub signed build provenance via OIDC and publishes release assets. Action references are pinned to commit IDs. Workflow configuration is not proof a remote CI/release was executed.
+The `LASA verification gate` job requires all hosted unit, race, fuzz, package, container, BPF regeneration, workflow security and docs jobs. Fork code runs with read-only repository access and no publishing credentials. `release.yml` starts through an explicit dispatch on `main` and requires successful push checks for the exact tagged commit. The optional sensor's live kernel tests use disposable Linux VMs outside GitHub Actions. See [repository security](repository-security.md) for verification and governance.
 
 ## Reproducibility and artifacts
 

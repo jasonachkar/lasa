@@ -1,13 +1,13 @@
 SHELL := /bin/sh
 GO ?= go
-GO_VERSION := 1.27.2
+GO_VERSION := 1.27.4
 VERSION ?= 0.1.0-dev
 VULN_DB ?=
 BIN := bin/lasa
 LDFLAGS := -s -w -buildid= -X github.com/jasonachkar/lasa/internal/domain.Version=$(VERSION)
 export GOTOOLCHAIN := local
 
-.PHONY: all build test vet fmt lint vuln deps race check release-binaries reproducible tools bpf fuzz notices sbom packages print-version clean
+.PHONY: all build test vet fmt lint vuln deps race check release-binaries reproducible tools security-tools bpf fuzz notices sbom packages print-version clean
 all: build
 build:
 	@mkdir -p bin
@@ -39,6 +39,9 @@ tools:
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@v1.9.0
 	$(GO) install golang.org/x/tools/cmd/goimports@v0.52.0
 	$(GO) install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0
+security-tools:
+	$(GO) install github.com/zricethezav/gitleaks/v8@v8.30.1
+	$(GO) install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 bpf:
 	$(GO) generate ./internal/collector/ebpf
 fuzz:
@@ -52,8 +55,9 @@ fuzz:
 notices:
 	sh scripts/package-notices.sh
 sbom: release-binaries notices
-	cyclonedx-gomod bin -json -std -version v$(VERSION) -output dist/lasa-amd64.cdx.json dist/lasa-$(VERSION)-linux-amd64
-	cyclonedx-gomod bin -json -std -version v$(VERSION) -output dist/lasa-arm64.cdx.json dist/lasa-$(VERSION)-linux-arm64
+	GOOS=linux GOARCH=amd64 cyclonedx-gomod bin -json -std -noserial -version v$(VERSION) -output dist/lasa-amd64.cdx.json dist/lasa-$(VERSION)-linux-amd64
+	GOOS=linux GOARCH=arm64 cyclonedx-gomod bin -json -std -noserial -version v$(VERSION) -output dist/lasa-arm64.cdx.json dist/lasa-$(VERSION)-linux-arm64
+	python3 scripts/security/verify-release-assets.py --canonicalize-sboms dist "$(VERSION)"
 packages: sbom
 	bash scripts/package-release.sh $(VERSION)
 	cd dist && sha256sum -- lasa-$(VERSION)-linux-amd64 lasa-$(VERSION)-linux-arm64 lasa_$(VERSION)_*.deb lasa-$(VERSION)-linux-*.tar.gz lasa-*.cdx.json > SHA256SUMS

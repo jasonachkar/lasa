@@ -1,124 +1,80 @@
-name: Signed release
+name: Build and attest release artifacts
 on:
-  push:
-    tags: ['v*']
-  workflow_call:
+  workflow_dispatch:
     inputs:
-      version:
-        type: string
+      tag:
+        description: Existing stable tag pointing at the selected main commit
         required: true
-permissions:
-  contents: read
+        type: string
+permissions: {}
+concurrency:
+  group: lasa-release
+  cancel-in-progress: false
+env:
+  RELEASE_TAG: ${{ inputs.tag }}
 jobs:
-  release:
+  build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
-    environment: release
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    env:
-      RELEASE_TAG: ${{ inputs.version && format('v{0}', inputs.version) || github.ref_name }}
+    timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
+      actions: read
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify source before executing build code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/security/verify-release-source.sh "$RELEASE_TAG"
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build and verify assets
+        run: |
+          go_bin=$(go env GOPATH)/bin
+          export VERSION=${RELEASE_TAG#v} PATH="$go_bin:$PATH"
+          make tools
+          make check reproducible packages
+          test "$VERSION" = "$(./bin/lasa version)"
+          mkdir release-assets
+          tar --sort=name --mtime="@$(git show -s --format=%ct HEAD)" --owner=0 --group=0 --numeric-owner -C dist -cf - licenses | gzip -n > "release-assets/lasa-$VERSION-licenses.tar.gz"
+          cp dist/lasa-*-linux-amd64 dist/lasa-*-linux-arm64 dist/*.deb dist/*.cdx.json dist/*.tar.gz release-assets/
+          python3 scripts/security/verify-release-assets.py --write release-assets "$VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        id: upload
+        with:
+          name: release-assets-${{ github.run_attempt }}
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 7
+
+  attest:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+      actions: read
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ inputs.version && format('v{0}', inputs.version) || github.ref }}
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          go-version: '1.27.2'
-      - name: Verify tag, version and publishing configuration
-        id: version
-        env:
-          DISTRIBUTION_REPOSITORY: ${{ vars.DISTRIBUTION_REPOSITORY }}
-        run: |
-          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          export VERSION=${RELEASE_TAG#v}
-          test "$VERSION" = "$(go run -ldflags="-X github.com/jasonachkar/lasa/internal/domain.Version=$VERSION" ./cmd/lasa version)"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          test -n "$DISTRIBUTION_REPOSITORY" || { echo 'Run scripts/bootstrap-distribution.sh before tagging a release'; exit 1; }
-      - run: make tools
-      - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-      - run: make check reproducible
-      - name: Reuse immutable assets when retrying a published release
-        id: existing
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if draft=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq .draft 2> "$RUNNER_TEMP/release-error"); then
-            if [ "$draft" = false ]; then
-              mkdir -p dist
-              gh release download "$RELEASE_TAG" --dir dist
-              (cd dist && sha256sum --strict -c SHA256SUMS)
-              echo 'published=true' >> "$GITHUB_OUTPUT"
-            fi
-          elif ! grep -q 'HTTP 404' "$RUNNER_TEMP/release-error"; then
-            cat "$RUNNER_TEMP/release-error" >&2
-            exit 1
-          fi
-      - name: Build packages, archives, notices and SBOMs
-        if: steps.existing.outputs.published != 'true'
-        run: |
-          make packages
-          version=$(make -s print-version)
-          tar --sort=name --mtime="@$(git show -s --format=%ct HEAD)" --owner=0 --group=0 --numeric-owner -C dist -cf - licenses | gzip -n > "dist/lasa-$version-licenses.tar.gz"
-          (cd dist && sha256sum -- lasa-*-linux-amd64 lasa-*-linux-arm64 *.deb *.cdx.json *.tar.gz > SHA256SUMS)
-      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
-        if: steps.existing.outputs.published != 'true'
+          artifact-ids: ${{ needs.build.outputs.artifact }}
+          path: release-assets
+          digest-mismatch: error
+      - run: python3 scripts/security/verify-release-assets.py release-assets "${RELEASE_TAG#v}"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
-          subject-path: |
-            dist/lasa-*-linux-amd64
-            dist/lasa-*-linux-arm64
-            dist/*.deb
-            dist/*.cdx.json
-            dist/*.tar.gz
-            dist/SHA256SUMS
-      - name: Publish verified release assets
-        if: steps.existing.outputs.published != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Drafts can be repaired after an interrupted upload. Published bytes
-          # are never overwritten; retries reuse them in the preceding step.
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes
-          fi
-          gh release upload "$RELEASE_TAG" dist/lasa-*-linux-amd64 dist/lasa-*-linux-arm64 dist/*.deb dist/*.cdx.json dist/*.tar.gz dist/SHA256SUMS --clobber
-          gh release edit "$RELEASE_TAG" --draft=false
-  distribution:
-    needs: release
-    concurrency:
-      group: lasa-distribution
-      cancel-in-progress: false
-    env:
-      RELEASE_TAG: v${{ needs.release.outputs.version }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    environment: release
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: v${{ needs.release.outputs.version }}
-      - name: Install repository indexing tools
-        run: |
-          sudo apt-get update -o APT::Update::Error-Mode=any
-          sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg
-      - name: Publish signed APT repository and Linux Homebrew formula
-        env:
-          GH_TOKEN: ${{ github.token }}
-          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
-          DISTRIBUTION_DEPLOY_KEY: ${{ secrets.DISTRIBUTION_DEPLOY_KEY }}
-          APT_SIGNING_FINGERPRINT: ${{ vars.APT_SIGNING_FINGERPRINT }}
-          DISTRIBUTION_REPOSITORY: ${{ vars.DISTRIBUTION_REPOSITORY }}
-          DISTRIBUTION_BRANCH: ${{ vars.DISTRIBUTION_BRANCH }}
-          APT_REPOSITORY_URL: ${{ vars.APT_REPOSITORY_URL }}
-        run: bash scripts/publish-from-actions.sh
-  docs:
-    needs: [release, distribution]
-    uses: ./.github/workflows/docs.yml
-    with:
-      version: ${{ needs.release.outputs.version }}
-    secrets: inherit
+          subject-path: release-assets/SHA256SUMS

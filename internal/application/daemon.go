@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/jasonachkar/lasa/internal/domain"
@@ -25,17 +23,12 @@ func (d Daemon) Run(ctx context.Context) error {
 	if d.Interval < time.Second || d.Retention < 1 || d.Retention > 10000 || d.Scan == nil {
 		return fmt.Errorf("daemon requires interval >=1s, retention 1..10000 and scanner")
 	}
-	if e := storage.Directory(d.Directory); e != nil {
+	state, e := storage.OpenState(d.Directory)
+	if e != nil {
 		return fmt.Errorf("state directory: %w", e)
 	}
-	st, e := os.Stat(d.Directory)
-	if e != nil {
-		return e
-	}
-	if st.Mode().Perm()&0077 != 0 {
-		return fmt.Errorf("state directory %s must not grant group or other access (use mode 0700)", d.Directory)
-	}
-	lock, e := storage.Lock(filepath.Join(d.Directory, ".daemon.lock"))
+	defer state.Close()
+	lock, e := state.Lock()
 	if e != nil {
 		return e
 	}
@@ -62,10 +55,10 @@ func (d Daemon) Run(ctx context.Context) error {
 				return e
 			}
 			name := "scan-" + s.Started.UTC().Format("20060102T150405.000000000Z") + "-" + s.ScanID + ".json"
-			if e = storage.Atomic(filepath.Join(d.Directory, name), raw); e != nil {
+			if e = state.WriteSnapshot(name, raw); e != nil {
 				return fmt.Errorf("snapshot persistence failed: %w", e)
 			}
-			if e = storage.Prune(d.Directory, d.Retention); e != nil {
+			if e = state.Prune(d.Retention); e != nil {
 				return fmt.Errorf("snapshot retention failed: %w", e)
 			}
 			if d.Log != nil {

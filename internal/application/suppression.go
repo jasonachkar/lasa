@@ -1,10 +1,8 @@
 package application
 
 import (
-	"bytes"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -26,14 +24,8 @@ func ParsePolicy(raw []byte) (Policy, error) {
 	if len(raw) > 1<<20 {
 		return p, fmt.Errorf("suppression policy exceeds 1MiB")
 	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if e := dec.Decode(&p); e != nil {
-		return p, e
-	}
-	var extra any
-	if e := dec.Decode(&extra); e != io.EOF {
-		return p, fmt.Errorf("trailing suppression data")
+	if e := jsonv2.Unmarshal(raw, &p, jsonv2.RejectUnknownMembers(true)); e != nil {
+		return p, fmt.Errorf("invalid suppression policy: %w", e)
 	}
 	if p.Schema != "lasa.suppressions/v1" || len(p.Entries) > 4096 {
 		return p, fmt.Errorf("unsupported suppression schema or too many entries")

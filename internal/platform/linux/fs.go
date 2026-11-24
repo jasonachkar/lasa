@@ -40,8 +40,27 @@ func Open(root, path string, flags int) (*os.File, error) {
 	}
 	return os.NewFile(uintptr(n), filepath.Join(root, path)), nil
 }
+
+// OpenRegular checks the pinned inode before opening it for I/O. Opening a
+// device or FIFO can have side effects even if the caller only plans to read.
+func OpenRegular(root, path string) (*os.File, error) {
+	pinned, e := Open(root, path, unix.O_PATH)
+	if e != nil {
+		return nil, e
+	}
+	defer pinned.Close()
+	st, e := pinned.Stat()
+	if e != nil {
+		return nil, e
+	}
+	if !st.Mode().IsRegular() {
+		return nil, fmt.Errorf("input must be a regular file")
+	}
+	return os.OpenFile(fmt.Sprintf("/proc/self/fd/%d", pinned.Fd()), os.O_RDONLY|unix.O_NONBLOCK, 0)
+}
+
 func (f FS) Read(p string) ([]byte, error) {
-	h, e := Open(f.Root, p, unix.O_RDONLY|unix.O_NONBLOCK)
+	h, e := OpenRegular(f.Root, p)
 	if e != nil {
 		return nil, e
 	}

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run in Linux Actions after importing the APT signing secret into GNUPGHOME.
+# Run on Linux with access to the owner's APT signing key.
 # Updates a checked-out distribution repository; committing/pushing is separate.
 set -euo pipefail
 umask 022
@@ -13,6 +13,11 @@ apt_url=${5:?Missing APT URL}
 [[ $repository =~ ^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$ ]] || exit 1
 [[ $apt_url =~ ^https://[a-z0-9-]+\.github\.io/[A-Za-z0-9_.-]+/apt$ || $apt_url == https://lasa.secureobs.com/apt ]] || { echo 'Expected the LASA custom domain or a GitHub Pages HTTPS APT URL' >&2; exit 1; }
 [[ ${APT_SIGNING_FINGERPRINT:-} =~ ^[A-F0-9]{40}$ ]] || { echo 'APT_SIGNING_FINGERPRINT must identify exactly one signing key' >&2; exit 1; }
+validity_days=${APT_VALIDITY_DAYS:-}
+if [[ -n $validity_days && ! $validity_days =~ ^([1-9]|[1-8][0-9]|90)$ ]]; then
+  echo 'APT_VALIDITY_DAYS must be 1 through 90, or unset.' >&2
+  exit 1
+fi
 for tool in dpkg-scanpackages apt-ftparchive gpg sha256sum gzip; do command -v "$tool" >/dev/null || { echo "Missing publishing dependency: $tool" >&2; exit 1; }; done
 # Read configuration before APT's system snippets, including unrelated hooks.
 # Index as the current unprivileged user, who can read the private staging tree.
@@ -67,6 +72,12 @@ done
     -o APT::FTPArchive::Release::Components=main \
     -o APT::FTPArchive::Release::Acquire-By-Hash=yes \
     release dists/stable > Release.new
+  if [[ -n $validity_days ]]; then
+    expiry=$(LC_ALL=C date -u -R --date="+$validity_days days")
+    # Release is one deb822 stanza. Insert the field before the checksum lists.
+    sed -i "/^Date: /a Valid-Until: $expiry" Release.new
+    grep -Fxq "Valid-Until: $expiry" Release.new
+  fi
   mv Release.new dists/stable/Release
   for arch in amd64 arm64; do
     for index in Packages Packages.gz; do

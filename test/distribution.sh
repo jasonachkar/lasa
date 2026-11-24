@@ -2,6 +2,7 @@
 # Real package/signature/APT integration. No installed packages or trust modified.
 set -euo pipefail
 umask 077
+unset APT_VALIDITY_DAYS
 cd "$(dirname "$0")/.."
 version=$(make -s print-version)
 temp=$(mktemp -d)
@@ -58,6 +59,20 @@ for arch in amd64 arm64; do cmp "dist/lasa_${version}_${arch}.deb" "$temp/downlo
 # Re-running preserves immutable packages and remains a valid signed repository.
 bash scripts/publish-distribution.sh "$temp/site" dist "$version" example/lasa https://example.github.io/homebrew-lasa/apt
 gpgv --keyring "$temp/keyring.gpg" "$temp/site/apt/dists/stable/InRelease"
+# Expiry is opt-in. Exercise it with real signed metadata and an isolated APT.
+release="$temp/site/apt/dists/stable/Release"
+inrelease="$temp/site/apt/dists/stable/InRelease"
+if grep -q '^Valid-Until: ' "$release"; then exit 1; fi
+APT_VALIDITY_DAYS=7 bash scripts/publish-distribution.sh "$temp/site" dist "$version" example/lasa https://example.github.io/homebrew-lasa/apt
+grep -q '^Valid-Until: ' "$release"
+find "$temp/lists" -type f -delete
+apt-get "${apt_options[@]}" update
+expired=$(LC_ALL=C date -u -R --date=yesterday)
+sed -i "s/^Valid-Until: .*/Valid-Until: $expired/" "$release"
+gpg --batch --yes --local-user "$APT_SIGNING_FINGERPRINT" --clearsign --output "$inrelease" "$release"
+find "$temp/lists" -type f -delete
+if apt-get "${apt_options[@]}" update > "$temp/rejection" 2>&1; then echo 'APT accepted expired metadata' >&2; exit 1; fi
+grep -qi 'expired' "$temp/rejection"
 # Tampered signatures must be rejected by real APT, not just by a mock.
 sed -i 's/Suite: stable/Suite: tampered/' "$temp/site/apt/dists/stable/InRelease"
 find "$temp/lists" -type f -delete
@@ -105,4 +120,4 @@ sed 's/^APT_FINGERPRINT=.*/APT_FINGERPRINT=0000000000000000000000000000000000000
 if MOCK_KEY="$temp/site/apt/lasa-signing-key.asc" PATH="$temp/mock:$PATH" bash "$temp/wrong-key.sh" > "$temp/rejection" 2>&1; then exit 1; fi
 grep -q 'does not match the installer fingerprint' "$temp/rejection"
 if grep -q 'Untrusted key reached' "$temp/rejection"; then exit 1; fi
-echo 'PASS: reproducible packages, both architectures, signatures, real isolated APT downloads, repeat publishing, tamper/key rejection and downgrade/immutability guards'
+echo 'PASS: reproducible packages, both architectures, signatures, real isolated APT downloads, repeat publishing, expiry/tamper/key rejection and downgrade/immutability guards'
