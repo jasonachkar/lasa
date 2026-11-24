@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -212,7 +213,9 @@ func invokingOwner(dirOwner uint32) (int, int, bool) {
 	}
 	uid, e1 := strconv.ParseUint(os.Getenv("SUDO_UID"), 10, 32)
 	gid, e2 := strconv.ParseUint(os.Getenv("SUDO_GID"), 10, 32)
-	if e1 != nil || e2 != nil || uint32(uid) != dirOwner {
+	// IDs above MaxInt32 are invalid; the bound also keeps the int
+	// conversion exact on 32-bit platforms, where -1 would mean "unchanged".
+	if e1 != nil || e2 != nil || uid > math.MaxInt32 || gid > math.MaxInt32 || uint32(uid) != dirOwner {
 		return 0, 0, false
 	}
 	return int(uid), int(gid), true
