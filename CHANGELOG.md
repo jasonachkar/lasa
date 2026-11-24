@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — readable findings and reliable coverage
+## 0.2.0 — readable findings and reliable coverage (2026-11-24)
 
 - Terminal output leads with a findings table (short ID, severity, priority, finding, affected resource), followed by short per-finding blocks with the observed facts, rule-specific risk and impact, fix, and a suggested command for permission findings. Diagnostics are grouped into collection gaps and items not inspected by design; caveats common to every finding appear once. Adds `--color auto|always|never`.
 - HTML reports show the affected resource, observed facts and evidence on each finding card, a severity summary and findings table, grouped diagnostics and collapsed full evidence. SARIF results name the affected resource and give file findings a `file://` location.
