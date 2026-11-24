@@ -42,7 +42,7 @@ Your field guide to exposed services, permissions and runtime evidence. Start wi
 
 -   [I am new to LASA :material-arrow-right:](installation.md)
 
-    Install with your Linux package manager, Linux Homebrew or a verified release binary, and complete your first scan.
+    Check package availability, build from source if you have access, and complete your first scan.
 
 -   [I want to automate scans :material-arrow-right:](cli-reference.md)
 
