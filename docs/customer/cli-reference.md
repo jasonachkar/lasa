@@ -4,9 +4,9 @@
 
 ## Conventions and global options
 
-Run `lasa --help` or `lasa COMMAND --help` for help generated from the implementation. `--diagnostics-format text|json` controls fatal command diagnostics on stderr. When an output format is selected, stdout contains that output only. If `--output` is provided, the report is written privately to that path instead of stdout.
+Run `lasa --help` or `lasa COMMAND --help` for help generated from the implementation. `--diagnostics-format text|json` controls fatal command diagnostics on stderr. In text mode a command error is one line, `lasa: CODE: cause [operation target]`, followed by a `hint:` line with the next step. `--color auto|always|never` controls terminal color; `auto` colors terminals only and honors `NO_COLOR` and `TERM=dumb`. When an output format is selected, stdout contains that output only. If `--output` is provided, the report is written privately to that path instead of stdout. Commands that read a saved report accept `-` to read it from standard input.
 
-Shell completion is built in:
+Packages install the `lasa(1)` manual page and bash, zsh and fish completions. With other installation methods, generate completions yourself:
 
 ```sh
 lasa completion bash > lasa-completion.bash
@@ -29,10 +29,10 @@ lasa scan --format sarif --output host.sarif --fail-on high
 | `--max-processes` | `4096` | Visible PID inspection budget, maximum 65,536 |
 | `--max-fds` | `512` | Descriptors inspected per PID, maximum 65,536 |
 | `--max-files` | `4096` | File metadata budget, maximum 100,000 |
-| `--roots` | See privacy guide | Comma-separated explicit metadata roots, replaces defaults |
+| `--roots` | See privacy guide | Comma-separated explicit metadata roots, replaces defaults; relative paths are resolved against the working directory |
 | `--sensor-duration` | `3s` | Optional event window, 1ms–10m, only used by sensor profile |
 | `--format` | `terminal` | `terminal`, `json`, `html`, `sarif` |
-| `--output` | stdout | Atomic private destination; existing regular files are replaced |
+| `--output` | stdout | Atomic private destination; existing regular files are replaced. The directory must be owned by you or root, or, for a scan run with sudo, by the invoking user (the report is then assigned to that user) |
 | `--rules` | none | Explicit additional local YAML rule pack; builtin IDs cannot be overridden |
 | `--suppressions` | none | Explicit versioned local JSON suppression file |
 | `--strict` | false | Incomplete collection yields exit 3 after report output |
@@ -72,20 +72,27 @@ lasa doctor
 lasa doctor --format json
 ```
 
-Checks Linux compatibility, the scanner's own procfs/security/socket/mount access and optional BTF/tracepoint visibility. Optional failures do not prevent the static prerequisite result from succeeding. Doctor does not prove that all other processes are accessible or that a BPF program can load; the selected sensor performs actual feature probing and attachment.
+Checks Linux compatibility, `openat2` availability (required; LASA has no path-following fallback), the scanner's own procfs/security/socket/mount access and optional BTF/tracepoint visibility. The informational `environment` check identifies WSL2, gVisor and containers and explains what they hide; on WSL2, for example, Windows processes and listeners are not visible. Optional failures do not prevent the static prerequisite result from succeeding. Doctor does not prove that all other processes are accessible or that a BPF program can load; the selected sensor performs actual feature probing and attachment.
 
 ## `lasa explain <finding-id> --report <path>`
 
 ```sh
-lasa explain FULL_FINGERPRINT --report host.report.json
-lasa explain FULL_FINGERPRINT --report host.report.json --format json
+lasa explain 5601ae00 --report host.report.json
+lasa explain LASA-013 --report host.report.json --format json
+lasa scan --format json | lasa explain 5601ae00 --report -
 ```
 
-Uses the full finding fingerprint, not the rule ID. Shows the stored finding, its evidence and the matching recorded evaluation. It does not rescan or test exploitability. A missing fingerprint produces `FINDING_NOT_FOUND`. JSON output uses `lasa.explanation/v1`.
+Accepts the full fingerprint, a unique prefix of at least 6 characters (the ID column of `lasa report`), or a rule ID when the report has exactly one finding for that rule. Shows the finding, its recorded evidence, the rule evaluation and the coverage of the collectors behind that evidence. It does not rescan or test exploitability. No match produces `FINDING_NOT_FOUND`; several matches produce `FINDING_AMBIGUOUS` with the candidate IDs. JSON output uses `lasa.explanation/v1`.
 
 ## `lasa diff <previous-report> <current-report>`
 
-Produces JSON with `new`, `continuing`, `changed`, `resolved` and `unknown` categories plus `unknown_reasons`, which explains each unknown finding. Different host identities are rejected. Unavailable assets, a changed profile, incomplete evidence collectors or a missing explicit negative evaluation keep old findings in `unknown`. LASA deliberately favors uncertainty over a false resolution claim.
+```sh
+lasa diff before.json after.json
+lasa diff before.json after.json --format terminal
+lasa diff before.json after.json --fail-on-new high
+```
+
+`--format json` (default) produces JSON; `--format terminal` prints counts and the new, changed, resolved and unknown findings with the reason each unknown could not be resolved. `--fail-on-new SEVERITY` exits 1 when a new unsuppressed finding is at or above the severity. The JSON output has with `new`, `continuing`, `changed`, `resolved` and `unknown` categories plus `unknown_reasons`, which explains each unknown finding. Different host identities are rejected. Unavailable assets, a changed profile, incomplete evidence collectors or a missing explicit negative evaluation keep old findings in `unknown`. LASA deliberately favors uncertainty over a false resolution claim.
 
 ## `lasa report --input <path> --format <format>`
 
@@ -98,7 +105,9 @@ Renders without contacting or inspecting the scanned host. Inputs are capped at 
 
 ## `lasa rules list`
 
-`--format terminal|json` lists builtin rule versions, categories, conditions and remediation. `--rules PATH` appends an explicit local pack for inspection. No rule pack is downloaded automatically and no shell/expression code is executed from rules. See the maintainer authoring guide if you operate custom packs.
+`--format terminal|json` lists builtin rule versions, categories, conditions and remediation. `--rules PATH` appends an explicit local pack for inspection. No rule pack is downloaded automatically and no shell/expression code is executed from rules.
+
+`lasa rules validate PACK` checks a local pack without scanning, and `lasa rules predicates` lists the predicates conditions can use, with their subject, type and meaning. See [write custom rules](custom-rules.md).
 
 ## `lasa daemon`
 

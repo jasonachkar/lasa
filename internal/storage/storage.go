@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	linux "github.com/jasonachkar/lasa/internal/platform/linux"
@@ -44,8 +45,8 @@ func atomicAt(dir *os.File, base string, b []byte) error {
 	if e = unix.Fstat(int(dir.Fd()), &parentStat); e != nil {
 		return e
 	}
-	if parentStat.Uid != uint32(os.Geteuid()) && parentStat.Uid != 0 && parentStat.Mode&unix.S_ISVTX == 0 {
-		return fmt.Errorf("output parent must be owned by the scanner user or root")
+	if !ownerAllowed(parentStat.Uid, os.Geteuid(), os.Getenv("SUDO_UID")) && parentStat.Mode&unix.S_ISVTX == 0 {
+		return fmt.Errorf("output directory is owned by uid %d; it must be owned by the scanner user (uid %d), root, or the sudo invoking user, or be a sticky directory such as /tmp", parentStat.Uid, os.Geteuid())
 	}
 	if parentStat.Mode&0022 != 0 && parentStat.Mode&unix.S_ISVTX == 0 {
 		return fmt.Errorf("output parent is writable by other users without sticky-bit protection")
@@ -67,6 +68,13 @@ func atomicAt(dir *os.File, base string, b []byte) error {
 	}
 	h := os.NewFile(uintptr(fd), tmp)
 	defer func() { _ = h.Close(); _ = unix.Unlinkat(int(dir.Fd()), tmp, 0) }()
+	if owner, group, ok := invokingOwner(parentStat.Uid); ok {
+		// A sudo scan writing into the invoking user's private directory
+		// hands the private report to that user.
+		if e = unix.Fchown(fd, owner, group); e != nil {
+			return fmt.Errorf("assign report to the invoking user: %w", e)
+		}
+	}
 	if _, e = h.Write(b); e != nil {
 		return e
 	}
@@ -178,4 +186,34 @@ func (s *State) Lock() (*os.File, error) {
 		return nil, fmt.Errorf("another daemon holds this state directory: %w", e)
 	}
 	return h, nil
+}
+
+// ownerAllowed reports whether a directory owner is trusted for private
+// output: the scanner user, root, or, for a root scan started through sudo,
+// the invoking user. That user already controls a root session, so writing
+// into their own private directory does not cross a trust boundary; the
+// directory must still not be writable by group or other users.
+func ownerAllowed(owner uint32, euid int, sudoUID string) bool {
+	if owner == uint32(euid) || owner == 0 {
+		return true
+	}
+	if euid != 0 || sudoUID == "" {
+		return false
+	}
+	invoking, e := strconv.ParseUint(sudoUID, 10, 32)
+	return e == nil && uint32(invoking) == owner
+}
+
+// invokingOwner returns the sudo invoking user and group when running as root
+// and the destination directory belongs to that user.
+func invokingOwner(dirOwner uint32) (int, int, bool) {
+	if os.Geteuid() != 0 || dirOwner == 0 {
+		return 0, 0, false
+	}
+	uid, e1 := strconv.ParseUint(os.Getenv("SUDO_UID"), 10, 32)
+	gid, e2 := strconv.ParseUint(os.Getenv("SUDO_GID"), 10, 32)
+	if e1 != nil || e2 != nil || uint32(uid) != dirOwner {
+		return 0, 0, false
+	}
+	return int(uid), int(gid), true
 }

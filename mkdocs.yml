@@ -54,6 +54,7 @@ nav:
       - CLI reference: cli-reference.md
       - Understand results: results.md
       - Operate and deploy: operations.md
+      - Write custom rules: custom-rules.md
       - Troubleshoot: troubleshooting.md
   - Trust and scope:
       - Collection, access and privacy: data-and-privacy.md

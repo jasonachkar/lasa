@@ -80,10 +80,12 @@ lasa scan --roots /usr/local/bin,/etc/systemd/system --max-files 2048 --timeout 
 First inspect `lasa doctor` and the unprivileged report. Run a deep scan only in a host context and with authorization appropriate to your organization:
 
 ```sh
-sudo lasa scan --profile deep --format json --output ./reports/deep.report.json
+mkdir -m 0700 -p ~/reports
+sudo lasa scan --profile deep --format json --output ~/reports/deep.report.json
+lasa report --input ~/reports/deep.report.json
 ```
 
-Root-owned reports remain private to their owner. Procfs hidepid, ptrace policy, user namespaces and container restrictions can still limit root's view. An elevated scan does not certify that the entire host was observed.
+When a scan runs through sudo and the destination directory is a private directory of the invoking user, the report is written with mode `0600` and assigned to that user, so it can be read without sudo. Directories that other users can write to are refused. Without sudo, root-owned reports remain private to root. Procfs hidepid, ptrace policy, user namespaces and container restrictions can still limit root's view. An elevated scan does not certify that the entire host was observed.
 
 Use `--profile container` when scanning inside a container. It reports that limited scope rather than silently presenting the result as a host audit. See [operations](operations.md) before exposing additional host namespaces or mounts.
 

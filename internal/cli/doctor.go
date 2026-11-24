@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -14,6 +15,7 @@ import (
 	linux "github.com/jasonachkar/lasa/internal/platform/linux"
 	"github.com/jasonachkar/lasa/internal/report"
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 )
 
 type DoctorCheck struct {
@@ -28,13 +30,14 @@ func doctorCommand() *cobra.Command {
 	var format string
 	returnCommand := &cobra.Command{Use: "doctor", Short: "Inspect static scan visibility and optional sensor prerequisites", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		if format != "json" && format != "terminal" {
-			return fmt.Errorf("doctor format must be terminal or json")
+			return failure("CONFIG_INVALID", "validate", "--format", fmt.Errorf("unsupported format %q; use terminal or json", format))
 		}
 		checks := []DoctorCheck{{Name: "platform", Required: true, State: domain.Observed, Detail: runtime.GOOS + "/" + runtime.GOARCH}, {Name: "privilege", Required: false, State: domain.Observed, Detail: fmt.Sprintf("effective UID %d; no automatic elevation", os.Geteuid())}}
 		if runtime.GOOS != "linux" {
 			checks[0].State = domain.NotApplicable
 		}
 		proc := linux.FS{Root: "/proc", Limit: 1 << 20}
+		checks = append(checks, openat2Check(), environmentCheck(proc))
 		pid := strconv.Itoa(os.Getpid())
 		for _, x := range []struct {
 			name, path string
@@ -101,4 +104,53 @@ func doctorCommand() *cobra.Command {
 	}}
 	returnCommand.Flags().StringVar(&format, "format", "terminal", "terminal or json")
 	return returnCommand
+}
+
+// openat2Check probes the constrained path resolution every collector uses.
+// A kernel or seccomp policy without openat2 cannot run a scan safely, and
+// LASA has no path-following fallback.
+func openat2Check() DoctorCheck {
+	item := DoctorCheck{Name: "openat2", Required: true, State: domain.Observed, Detail: "constrained path resolution (RESOLVE_BENEATH, RESOLVE_NO_SYMLINKS) is available"}
+	h, e := linux.Open("/", "proc", unix.O_PATH|unix.O_DIRECTORY)
+	if e == nil {
+		_ = h.Close()
+		return item
+	}
+	d := diagnostics.New("doctor", "openat2", "/proc", e)
+	if errors.Is(e, unix.ENOSYS) || errors.Is(e, unix.EPERM) {
+		d.Code = "HOST_UNSUPPORTED"
+		d.Cause = "openat2 is unavailable (" + e.Error() + "); it requires Linux 5.6+ and a syscall policy that allows it"
+		d.Remediation = "Use a supported kernel, or allow openat2 in the container or seccomp policy. LASA has no unsafe fallback."
+	}
+	item.State, item.Detail, item.Diagnostic = domain.Unknown, d.Cause, &d
+	return item
+}
+
+// environmentCheck reports execution environments whose visibility differs
+// from a native host. It is informational and never fails doctor.
+func environmentCheck(proc linux.FS) DoctorCheck {
+	osrelease, _ := proc.Read("sys/kernel/osrelease")
+	_, wslInterop := proc.Read("sys/fs/binfmt_misc/WSLInterop")
+	exists := func(path string) bool {
+		h, e := linux.Open("/", path, unix.O_PATH)
+		if e == nil {
+			_ = h.Close()
+		}
+		return e == nil
+	}
+	name, notes := classifyEnvironment(strings.TrimSpace(string(osrelease)), wslInterop == nil, exists(".dockerenv"), exists("run/.containerenv"))
+	return DoctorCheck{Name: "environment", State: domain.Observed, Detail: name + notes}
+}
+
+func classifyEnvironment(osrelease string, wslInterop, dockerenv, containerenv bool) (string, string) {
+	lower := strings.ToLower(osrelease)
+	switch {
+	case strings.Contains(lower, "microsoft") || strings.Contains(lower, "wsl") || wslInterop:
+		return "WSL2 (" + osrelease + ")", "; Windows processes and listeners are not visible; with NAT networking, listeners on all addresses can be reachable from Windows through localhost forwarding, and with mirrored networking they share the Windows interfaces; securityfs is usually not mounted, so LSM and lockdown controls stay unknown"
+	case strings.Contains(lower, "gvisor"):
+		return "gVisor sandbox", "; the sandbox kernel presents a partial, emulated view of the host"
+	case dockerenv || containerenv:
+		return "container", "; results describe the container's view, not the host; use --profile container to record that scope"
+	}
+	return "native Linux host", ""
 }
