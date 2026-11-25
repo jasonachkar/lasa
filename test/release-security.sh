@@ -17,6 +17,10 @@ set -euo pipefail
 case "$*" in
   'api repos/example/lasa --jq .owner.login') echo example;;
   'api user --jq .login') echo "${ACTOR_LOGIN:-example}";;
+  'api repos/example/lasa/git/matching-refs/tags/v1.2.3 --jq '*)
+    echo "${TAG_EXISTS-1}";;
+  'api --method POST repos/example/lasa/git/refs -f ref=refs/tags/v1.2.3 -f sha='"$GITHUB_SHA"' --jq .ref')
+    echo refs/tags/v1.2.3; touch "${CREATED_MARKER:?}";;
   'api repos/example/lasa/commits/refs/tags/v1.2.3 --jq .sha')
     echo "${TAG_SHA:-$GITHUB_SHA}";;
   'api repos/example/lasa/compare/'"$GITHUB_SHA"'...main --jq .merge_base_commit.sha')
@@ -49,9 +53,28 @@ reject() {
   fi
 }
 verify() { bash "$root/scripts/security/verify-release-source.sh" "$@"; }
+export CREATED_MARKER="$temp/created"
 verify v1.2.3
+GITHUB_EVENT_NAME=push verify v1.2.3
 GITHUB_REF=refs/heads/feature reject verify v1.2.3
-GITHUB_EVENT_NAME=push reject verify v1.2.3
+GITHUB_EVENT_NAME=pull_request reject verify v1.2.3
+GITHUB_EVENT_NAME=workflow_run reject verify v1.2.3
+# Automated releases verify before the tag exists; a missing tag is otherwise fatal.
+TAG_EXISTS=0 reject verify v1.2.3
+TAG_EXISTS=0 verify v1.2.3 --tag-may-be-absent
+TAG_EXISTS=0 TAG_SHA=0000000000000000000000000000000000000000 verify v1.2.3 --tag-may-be-absent
+TAG_SHA=0000000000000000000000000000000000000000 reject verify v1.2.3 --tag-may-be-absent
+reject verify v1.2.3 --unknown-option
+# Tag creation: create when absent, accept an identical retry, refuse a moved tag.
+create_tag() { bash "$root/scripts/release/create-tag.sh" "$@"; }
+TAG_EXISTS=0 create_tag v1.2.3 "$GITHUB_SHA"
+test -e "$CREATED_MARKER"
+rm "$CREATED_MARKER"
+create_tag v1.2.3 "$GITHUB_SHA"
+test ! -e "$CREATED_MARKER"
+TAG_SHA=0000000000000000000000000000000000000000 reject create_tag v1.2.3 "$GITHUB_SHA"
+reject create_tag v1.2.3-rc1 "$GITHUB_SHA"
+reject create_tag v1.2.3 main
 reject verify v1.2.3-extra
 TAG_SHA=0000000000000000000000000000000000000000 reject verify v1.2.3
 MAIN_BASE=0000000000000000000000000000000000000000 reject verify v1.2.3
@@ -86,7 +109,11 @@ mkdir "$PUBLISHED_ASSETS"
 cp "$temp/assets/"* "$PUBLISHED_ASSETS/"
 publish() { bash "$root/scripts/security/publish-release-assets.sh" v1.2.3 "$temp/assets"; }
 publish
+# From Actions only the release workflow on main may publish.
 GITHUB_ACTIONS=true reject publish
+GITHUB_ACTIONS=true GITHUB_WORKFLOW_REF=example/lasa/.github/workflows/ci.yml@refs/heads/main reject publish
+GITHUB_ACTIONS=true GITHUB_WORKFLOW_REF=example/lasa/.github/workflows/release.yml@refs/heads/feature reject publish
+GITHUB_ACTIONS=true GITHUB_WORKFLOW_REF=example/lasa/.github/workflows/release.yml@refs/heads/main ACTOR_LOGIN=github-actions publish
 ACTOR_LOGIN=other reject publish
 ATTESTATION_RESULT=denied reject publish
 printf '%s\n' 'different fixture bytes' > "$PUBLISHED_ASSETS/lasa_1.2.3_amd64.deb"
@@ -108,4 +135,4 @@ rm "$temp/assets/lasa_1.2.3_amd64.deb"
 mv "$temp/package" "$temp/assets/lasa_1.2.3_amd64.deb"
 cp "$temp/assets/lasa-amd64.cdx.json" "$temp/assets/lasa-arm64.cdx.json"
 reject manifest --write
-echo 'PASS: manual main-only release source, exact commit and CI validation, artifact and SBOM rejection, immutable retry validation.'
+echo 'PASS: main-only release source (push or dispatch), tag creation/immutability, Actions publisher restriction, exact commit and CI validation, artifact and SBOM rejection, immutable retry validation.'

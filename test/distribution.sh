@@ -30,6 +30,10 @@ for arch in amd64 arm64; do
   [[ -s "$temp/extracted-$arch/usr/share/zsh/vendor-completions/_lasa" && -s "$temp/extracted-$arch/usr/share/fish/vendor_completions.d/lasa.fish" ]]
   if grep -rq '](\.\./' "$temp/extracted-$arch/usr/share/doc/lasa"; then echo 'Packaged documentation has broken relative links' >&2; exit 1; fi
   cmp "$temp/extracted-$arch/usr/bin/lasa" "dist/lasa-$version-linux-$arch"
+  # The package carries exactly the committed, fingerprint-pinned APT keyring.
+  python3 -I scripts/release/dearmor.py deploy/apt/lasa-archive-keyring.asc "$temp/expected-keyring.gpg"
+  cmp "$temp/extracted-$arch/usr/share/keyrings/lasa-archive-keyring.gpg" "$temp/expected-keyring.gpg"
+  [[ $(stat -c %a "$temp/extracted-$arch/usr/share/keyrings/lasa-archive-keyring.gpg") == 644 ]]
   tar -xzf "dist/lasa-$version-linux-$arch.tar.gz" -C "$temp/control-$arch"
   cmp "$temp/control-$arch/bin/lasa" "dist/lasa-$version-linux-$arch"
   dpkg-deb -c "$package" > "$temp/listing"
