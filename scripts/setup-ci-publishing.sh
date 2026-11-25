@@ -113,7 +113,9 @@ jq -e --arg name "$title" 'all(.[][]; .read_only or .title == $name)' <<< "$keys
 work=$(mktemp -d /tmp/lasa-ci.XXXXXX)
 cleanup() {
   for home in "$work"/gnupg-*; do
-    [ -d "$home" ] && gpgconf --homedir "$home" --kill all >/dev/null 2>&1 || true
+    if [ -d "$home" ]; then
+      gpgconf --homedir "$home" --kill all >/dev/null 2>&1 || true
+    fi
   done
   rm -rf "$work"
 }
