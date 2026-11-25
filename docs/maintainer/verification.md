@@ -87,6 +87,16 @@ Counts vary with process churn. This is one measured run, not a performance guar
 
 An actual positive finding from a deliberately writable isolated fixture is preserved in [unsafe-permissions.json](../examples/unsafe-permissions.json). The file is an extracted example, not a full ingestible snapshot, and does not claim the host's active sudoers configuration was insecure. Its nonempty SARIF rendering and a justified-suppression SARIF rendering passed schema validation.
 
+## Installed-package acceptance test
+
+`test/installed-smoke.sh` tests the `lasa` on `PATH` on a real Linux host as an ordinary user. It covers scanning, all report formats, planted misconfigurations, remediation tracking with `diff`, output-path safety, hostile file names, report input validation, oversized-scan reduction and memory (including a run under `MemoryMax=512M` through `systemd-run --user` when available), the daemon, custom rules, command errors, `doctor` and package contents. Checks the host cannot support are reported as `SKIP`. Run it after installing a release candidate:
+
+```sh
+EXPECTED_VERSION=0.2.1 bash test/installed-smoke.sh
+```
+
+v0.2.1 passed 59 of 59 checks on Ubuntu 26.04 (WSL2), installed from the release DEB.
+
 ## Container validation
 
 Executed with a writable Docker CLI configuration directory, without copying credentials:
