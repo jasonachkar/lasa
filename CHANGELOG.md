@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 — automated publishing (2026-11-25)
+
+- APT metadata is signed in CI by a dedicated signing subkey; packages carry the APT keyring.
+
 ## 0.2.1 — bounded memory for large scans (2026-11-24)
 
 - Reducing an oversized report no longer builds the full JSON document to measure it, and picks the reduced file scope from each file's measured size, cutting peak memory for very broad scans from about 625–825 MB to about 410 MB. Under the example unit's `MemoryMax=512M`, such a scan now completes instead of being OOM-killed (#30).
