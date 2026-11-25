@@ -69,7 +69,7 @@ func managedSnapshots(h *os.File) ([]string, error) {
 		if e = unix.Fstatat(int(h.Fd()), name, &st, unix.AT_SYMLINK_NOFOLLOW); e != nil {
 			return nil, e
 		}
-		if st.Mode&unix.S_IFMT == unix.S_IFREG && st.Uid == uint32(os.Geteuid()) {
+		if st.Mode&unix.S_IFMT == unix.S_IFREG && int64(st.Uid) == int64(os.Geteuid()) {
 			managed = append(managed, name)
 		}
 	}

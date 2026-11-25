@@ -3,6 +3,7 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -80,5 +81,44 @@ func TestOutputOwnerTrust(t *testing.T) {
 		if got := ownerAllowed(tc.owner, tc.euid, tc.sudoUID); got != tc.want {
 			t.Errorf("%+v: got %t", tc, got)
 		}
+	}
+}
+
+func TestPinnedStateAndExclusiveLock(t *testing.T) {
+	base := t.TempDir()
+	path := filepath.Join(base, "new", "state")
+	s, err := OpenState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	lock, err := s.Lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if second, err := s.Lock(); err == nil {
+		second.Close()
+		t.Fatal("a second daemon obtained the lock")
+	}
+	if err := s.WriteSnapshot("../escaped.json", nil); err == nil {
+		t.Fatal("accepted a snapshot outside the state directory")
+	}
+	pinned := filepath.Join(base, "pinned")
+	if err := os.Rename(path, pinned); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	name := "scan-20261124T000000.000000000Z-" + strings.Repeat("a", 32) + ".json"
+	if err := s.WriteSnapshot(name, []byte("snapshot")); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(pinned, name)); err != nil || string(data) != "snapshot" {
+		t.Fatalf("snapshot did not stay in the pinned directory: %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(path, name)); !os.IsNotExist(err) {
+		t.Fatalf("snapshot appeared in the replacement directory: %v", err)
 	}
 }

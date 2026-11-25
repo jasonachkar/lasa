@@ -149,7 +149,7 @@ func OpenState(path string) (*State, error) {
 	if e = unix.Fstat(fd, &st); e != nil {
 		return nil, e
 	}
-	if st.Uid != uint32(os.Geteuid()) || st.Mode&0077 != 0 {
+	if int64(st.Uid) != int64(os.Geteuid()) || st.Mode&0077 != 0 {
 		return nil, fmt.Errorf("state directory must be owned by the scanner user and grant no group or other access")
 	}
 	dir := os.NewFile(uintptr(fd), p)
@@ -178,7 +178,7 @@ func (s *State) Lock() (*os.File, error) {
 		_ = h.Close()
 		return nil, e
 	}
-	if st.Mode&unix.S_IFMT != unix.S_IFREG || st.Uid != uint32(os.Geteuid()) || st.Mode&0077 != 0 || st.Nlink != 1 {
+	if st.Mode&unix.S_IFMT != unix.S_IFREG || int64(st.Uid) != int64(os.Geteuid()) || st.Mode&0077 != 0 || st.Nlink != 1 {
 		_ = h.Close()
 		return nil, fmt.Errorf("daemon lock must be a private regular file owned by the scanner")
 	}
@@ -195,7 +195,7 @@ func (s *State) Lock() (*os.File, error) {
 // into their own private directory does not cross a trust boundary; the
 // directory must still not be writable by group or other users.
 func ownerAllowed(owner uint32, euid int, sudoUID string) bool {
-	if owner == uint32(euid) || owner == 0 {
+	if int64(owner) == int64(euid) || owner == 0 {
 		return true
 	}
 	if euid != 0 || sudoUID == "" {

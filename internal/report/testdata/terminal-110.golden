@@ -1,0 +1,44 @@
+LASA VERSION
+Scope: 1 processes · 0 sockets · 1 files
+Coverage: partial (see Collection gaps)
+
+FINDINGS
+  2 total: 1 high, 1 low · 1 suppressed
+
+  ID        SEVERITY  PRI  FINDING                               AFFECTED
+  aaaaaaaa  HIGH       81  Writable sudoers configuration        /etc/sudoers.d/evil
+  bbbbbbbb  LOW        15  Local listener [suppressed]           /usr/bin/redis (pid 812)
+
+DETAILS
+
+HIGH  Writable sudoers configuration
+  ID          aaaaaaaa (rule LASA-009 v1)
+  Affected    /etc/sudoers.d/evil
+  Why         mode 0666 (rw-rw-rw-), owner uid 1000, group gid 1000; writable by any local user and members of
+              group 1000
+  Risk        An account can grant itself sudo.
+  Impact      Root access.
+  Fix         Restrict write access.\x1b[9m
+  Suggested   review first; LASA never runs commands
+              $ sudo chmod go-w -- '/etc/sudoers.d/evil' && sudo visudo -cf '/etc/sudoers.d/evil'
+  Assessment  priority 81/100 · confidence high · exposure n/a
+  Caveat      ACL visibility is incomplete.
+
+LOW  Local listener
+  ID          bbbbbbbb (rule LASA-003 v1)
+  Affected    /usr/bin/redis (pid 812)
+  Why         effective uid 0; listens on tcp 0.0.0.0:6379; no seccomp filter; NoNewPrivs off
+  Status      suppressed: Reviewed exception
+  Assessment  priority 15/100 · confidence medium · exposure unknown
+
+COLLECTION GAPS
+  Checks LASA could not complete. Unknown never counts as secure.
+  process     2 unreadable (permission denied) (e.g. /proc/1/fd, /proc/2/fd)
+              → Run the deep profile.
+
+NOT INSPECTED BY DESIGN
+  filesystem  1 symbolic links not followed (by design) (e.g. /usr/bin/awk)
+  3 diagnostics in total; use --format json for the complete list.
+
+NOTES
+  • Conditional scenario: no vulnerability, successful compromise, or exploitation has been established.

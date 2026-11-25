@@ -6,7 +6,6 @@
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/.."
-root=$PWD
 version=$(make -s print-version)
 for tool in apt-ftparchive dpkg-scanpackages gpgv apt-get git; do command -v "$tool" >/dev/null || { echo "Missing test dependency: $tool" >&2; exit 1; }; done
 [ -s "dist/lasa-$version-linux-amd64" ] || { echo "Build packages first: VERSION=$version make packages" >&2; exit 1; }

@@ -6,7 +6,17 @@
 
 Run `bash scripts/bootstrap-distribution.sh` from macOS or Linux with GitHub CLI, GnuPG, and jq installed. The source defaults to `jasonachkar/lasa` and the package site to `jasonachkar/homebrew-lasa`. Bootstrap creates or verifies the local APT signing identity, public package metadata, and Pages configuration. On a new machine, restore the original signing identity from the owner's backup. The first generation of a new signing key uses GnuPG pinentry. Add `--configure-domain` when provisioning the custom domain.
 
-GitHub Actions builds and attests artifacts. The repository owner publishes GitHub Release assets from an authenticated local session and pushes the signed package repository and docs to the Pages branch.
+## Enable automated publishing
+
+After the publishing workflow is on `main`, run this from that checkout on the machine holding the primary APT key. Sign in to `gh` as the repository owner first.
+
+```bash
+bash scripts/setup-ci-publishing.sh
+```
+
+The script verifies the protected `release` environment, asks for the APT key passphrase, generates a dedicated signing subkey, and registers a deployment key for the package-site repository. It submits the public keyring update and first release as protected PRs and waits for the required checks. Review the first release and approve its deployment when prompted. Run the same command again after a recoverable failure. Use `--rotate` to replace the CI signing subkey and deployment key, or `--skip-release` to configure publishing and defer the first release.
+
+The first automated release carries the new public keyring in its DEBs. The setup script adds a primary-key signature to that release's APT index so existing clients can upgrade using their original keyring. Later releases use the CI subkey. A client that misses the first release may need to rerun the fingerprint-verifying installer at `https://lasa.secureobs.com/install-apt.sh` to refresh its keyring. Rotate the CI subkey before expiry and repeat the migration for the new subkey.
 
 ## Artifacts and pipeline
 
@@ -14,9 +24,9 @@ GitHub Actions builds and attests artifacts. The repository owner publishes GitH
 
 `VERSION=0.0.0 make packages` builds local verification packages and needs Linux, the project's pinned Go and SBOM tools, GNU tar/gzip and `dpkg-deb`. Packages and archives normalize timestamps and ownership using the tagged commit's timestamp. Reports, local state and maintainer documents are not included. Customer Markdown is provided as reference files; the online documentation provides the complete navigation links.
 
-The GitHub-hosted build requires a stable version tag for the dispatched `main` commit and a successful canonical CI push run on that commit. It builds the two architecture packages, archives, SBOMs, and an exact checksum manifest. After the owner approves the `release` environment, GitHub attests the manifest. The owner verifies the attestation against the expected workflow, main ref, and source SHA before publishing.
+The GitHub-hosted build requires a new version in `CHANGELOG.md` and a successful canonical CI push run for that exact `main` commit. It builds both architectures, archives, SBOMs and a checksum manifest with read-only credentials. After the owner approves the `release` environment, CI attests the manifest, creates the immutable version tag, verifies the provenance and publishes the assets.
 
-`scripts/publish-distribution.sh` retains prior DEB bytes, creates signed APT indexes for both architectures, and generates the key-pinning installer and checksum-pinned Homebrew formula. It stages files locally. The owner pushes the resulting packages and numbered docs in a single fast-forward update after reviewing the changes.
+`scripts/publish-distribution.sh` retains prior DEB bytes, signs indexes for both architectures, and generates the key-pinning installer and the checksum-pinned Homebrew formula. The release workflow stages the packages and versioned docs together, pushes one fast-forward update and verifies the signed index and version list served by Pages.
 
 ## Trust and storage
 
@@ -24,12 +34,14 @@ The GitHub-hosted build requires a stable version tag for the dispatched `main` 
 | --- | --- | --- |
 | Owner's local GnuPG keyring | Mac: `~/Library/Application Support/lasa-distribution/OWNER_REPO/gnupg`. Linux: `${XDG_STATE_HOME:-~/.local/state}/lasa-distribution/OWNER_REPO/gnupg` | APT signing |
 | `APT_SIGNING_FINGERPRINT` | Source Actions variable | Public pin for the expected OpenPGP key |
+| `APT_SIGNING_SUBKEY_FINGERPRINT` | Source Actions variable | Public fingerprint of the dedicated CI signer |
+| `APT_SIGNING_SUBKEY`, `DISTRIBUTION_DEPLOY_KEY` | Protected `release` environment secrets | Sign APT metadata and push the package site after owner approval |
 | `DISTRIBUTION_REPOSITORY`, `DISTRIBUTION_BRANCH` | Source Actions variables | Public destination and branch |
 | `APT_REPOSITORY_URL`, `DOCS_SITE_URL` | Source Actions variables | Public endpoint configuration |
 | DEBs, APT indexes, public key, formula, installer | Public distribution Git repository and Pages | Customer downloads and verification |
 | Binaries, notices, SBOMs, hashes, attestations | Source GitHub Releases and attestation service | Immutable release artifacts |
 
-Keep the signing key in the owner's protected local keyring and retain an encrypted backup. The GitHub Actions release environment contains no package-signing or repository-write key.
+Keep the primary private key and an encrypted backup in owner-controlled storage. The environment gets only the dedicated signing subkey and the package-site deploy key. Protect access to the `release` environment and revoke or rotate either delegated credential if it is compromised.
 
 APT trusts the configured signing key and package/index checksums, while Homebrew pins archive SHA-256 hashes. A freshly downloaded installer and key originate from the same HTTPS site; the initial trust decision is in that site and the reviewed installer. Compare its fingerprint against your independently supplied release channel where your deployment policy requires it. Nothing uses `apt-key` or disables signature checks.
 
@@ -62,12 +74,20 @@ That shorthand automatically uses the `jasonachkar/homebrew-lasa` tap. Homebrew 
 
 ## Authorize a release from main
 
-Start from the protected, tested commit at the tip of `main`. Use `bash scripts/next-version.sh HEAD` to suggest a semantic version from reachable tags, then check the complete remote tag inventory for reservations before selecting a new stable tag. Create the selected tag through the owner account, binding it to the exact tested commit. Existing version tags are immutable.
-
-Dispatch the build and approve the `release` environment when GitHub asks for your approval to attest the manifest. Wait for the run to succeed and copy its numeric run ID from the Actions URL.
+Update `CHANGELOG.md` under `## Unreleased`, then run `bash scripts/release/prepare.sh X.Y.Z 'release title'` in the release branch. Open a PR and merge it after the required checks pass. Once the `main` build passes, review and approve the `release` environment. The workflow then publishes the version. To retry the version at the current tip of `main`:
 
 ```sh
-gh workflow run release.yml --repo jasonachkar/lasa --ref main -f tag=vX.Y.Z
+gh workflow run release.yml --repo jasonachkar/lasa --ref main -f version=X.Y.Z
+```
+
+If `main` has advanced since the release commit, use **Re-run failed jobs** on the original release run to retry the exact source commit.
+
+## Manual publication and recovery
+
+With `PUBLISHING_PROVIDER=local`, the workflow stops after building and attesting. Create `vX.Y.Z` through the owner account on the exact successfully verified `main` commit used by the run. The version must already be in that commit's changelog. Wait for the attestation run to succeed and copy its numeric run ID from the Actions URL.
+
+```sh
+gh workflow run release.yml --repo jasonachkar/lasa --ref main -f version=X.Y.Z
 ```
 
 Publish from an owner-controlled Linux environment with Bash, GitHub CLI, GnuPG, jq, `apt-utils`, `dpkg-dev`, and the pinned docs dependencies installed. From a clean checkout at the release tag, set the tag and run ID to the ones you just verified.
@@ -76,16 +96,17 @@ Publish from an owner-controlled Linux environment with Bash, GitHub CLI, GnuPG,
 tag=vX.Y.Z
 run_id=123456789
 export GITHUB_REPOSITORY=jasonachkar/lasa GITHUB_REF=refs/heads/main
-export GITHUB_EVENT_NAME=workflow_dispatch
 GITHUB_SHA=$(git rev-parse HEAD)
 export GITHUB_SHA
 
 run_info=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")
 jq -e --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" '
   .head_sha == $sha and .head_repository.full_name == $repo and
-  .head_branch == "main" and .event == "workflow_dispatch" and
+  .head_branch == "main" and (.event == "workflow_dispatch" or .event == "push") and
   .path == ".github/workflows/release.yml" and .conclusion == "success"
 ' <<< "$run_info"
+GITHUB_EVENT_NAME=$(jq -er .event <<< "$run_info")
+export GITHUB_EVENT_NAME
 attempt=$(jq -er .run_attempt <<< "$run_info")
 assets=$(mktemp -d)
 gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
@@ -126,7 +147,7 @@ The website uses pinned MkDocs 1.6.1, Material 9.7.7 and Mike 2.2.0, with all Py
 
 `scripts/prepare-docs.py` copies an explicit allowlist: `docs/customer/*.md`, `docs/website/`, public schemas and systemd examples. It never copies `docs/maintainer/` or the root README, and rejects unresolved maintainer links. This prevents accidental publication through this build; it does not make a public Git source repository private. The website contains collection/source paths, exclusions, storage/permissions, reports, all CLI operations, installation/updates, compatibility, troubleshooting and the current SecureObs export boundary.
 
-For a verified release, `scripts/publish-docs.sh` builds the docs in strict mode and uses Mike to stage `/VERSION/`, update the `latest` redirect and generate `versions.json`. The domain root redirects to `latest`. Earlier release documentation is retained. Mike preserves the destination's APT pool, formula, CNAME and other release content; integration tests verify this using actual Git trees. Verify the served version index and per-version build marker after the owner pushes.
+For a verified release, `scripts/publish-docs.sh` builds the docs in strict mode and uses Mike to stage `/VERSION/`, update the `latest` and `current` redirects, and generate `versions.json`. The domain root redirects to `latest`. Earlier release documentation is retained. Integration tests use actual Git trees to check the APT pool, formula and CNAME through the update.
 
 ## GoDaddy custom domain authorization
 

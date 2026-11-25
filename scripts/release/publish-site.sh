@@ -62,6 +62,7 @@ done
 
 # 2. Distribution checkout over SSH with a pinned GitHub host key.
 printf '%s\n' "$DISTRIBUTION_DEPLOY_KEY" > "$work/deploy-key"
+unset APT_SIGNING_SUBKEY DISTRIBUTION_DEPLOY_KEY
 chmod 0600 "$work/deploy-key"
 printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$work/known_hosts"
 export GIT_SSH_COMMAND="ssh -i $work/deploy-key -o IdentitiesOnly=yes -o UserKnownHostsFile=$work/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes"
@@ -73,7 +74,24 @@ git -C "$site" config user.email '41898282+github-actions[bot]@users.noreply.git
 before=$(git -C "$site" rev-parse HEAD)
 
 # 3. Packages, signed indexes, formula and installer.
-APT_SIGNING_KEYS="$subkey!" bash "$root/scripts/publish-distribution.sh" "$site" "$assets" "$version" "$GITHUB_REPOSITORY" "$APT_REPOSITORY_URL"
+# Preserve the exact published index on a retry, including a migration
+# signature the owner may have added after the first subkey-signed release.
+packages_current() {
+  grep -Fxq "  version \"$version\"" "$site/Formula/lasa.rb" 2>/dev/null || return 1
+  local arch package digest
+  for arch in amd64 arm64; do
+    package="lasa_${version}_${arch}.deb"
+    cmp -s "$assets/$package" "$site/apt/pool/main/l/lasa/$package" || return 1
+    digest=$(sha256sum "$assets/$package")
+    grep -Fxq "SHA256: ${digest%% *}" "$site/apt/dists/stable/main/binary-$arch/Packages" || return 1
+  done
+  gpgv --keyring "$work/expected.gpg" "$site/apt/dists/stable/InRelease" 2>/dev/null
+}
+if packages_current; then
+  echo "Signed package repository already contains LASA $version"
+else
+  APT_SIGNING_KEYS="$subkey!" bash "$root/scripts/publish-distribution.sh" "$site" "$assets" "$version" "$GITHUB_REPOSITORY" "$APT_REPOSITORY_URL"
+fi
 # Clients verify with exactly the packaged keyring; so does this check.
 gpgv --keyring "$work/expected.gpg" "$site/apt/dists/stable/InRelease" 2>/dev/null
 git -C "$site" add --all

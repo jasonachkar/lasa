@@ -52,6 +52,11 @@ python3 - "$primary" > "$GH_MOCK_STATE" <<'PY'
 import json, sys
 print(json.dumps({
   "login": "jasonachkar", "auto_merge": False, "secret_writes": 0, "log_keys": [],
+  "environment": {"can_admins_bypass": False,
+                  "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True},
+                  "protection_rules": [{"type": "required_reviewers", "prevent_self_review": False,
+                                        "reviewers": [{"type": "User", "reviewer": {"login": "jasonachkar"}}]}]},
+  "deployment_branches": [{"name": "main", "type": "branch"}],
   "vars": {"APT_SIGNING_FINGERPRINT": sys.argv[1], "DISTRIBUTION_REPOSITORY": "jasonachkar/homebrew-lasa",
            "DISTRIBUTION_BRANCH": "main", "APT_REPOSITORY_URL": "https://jasonachkar.github.io/homebrew-lasa/apt",
            "PUBLISHING_PROVIDER": "local"},
@@ -84,8 +89,8 @@ state() { jq -r "$1" "$GH_MOCK_STATE"; }
 # ---- refusals change nothing
 cp "$GH_MOCK_STATE" "$temp/pristine.json"
 if printf 'wrong pass\n' | setup --yes > "$temp/out" 2>&1; then fail 'wrong passphrase accepted'; fi
-grep -q 'does not unlock' "$temp/out" || fail 'wrong passphrase not explained'
-cmp "$GH_MOCK_STATE" "$temp/pristine.json" || fail 'a refused run changed GitHub state'
+grep -q 'does not unlock' "$temp/out" || { cat "$temp/out" >&2; fail 'wrong passphrase not explained'; }
+cmp <(jq -S . "$GH_MOCK_STATE") <(jq -S . "$temp/pristine.json") || fail 'a refused run changed GitHub state'
 jq '.login = "someone-else"' "$temp/pristine.json" > "$GH_MOCK_STATE"
 if printf 'owner pass\n' | setup --yes > "$temp/out" 2>&1; then fail 'non-owner accepted'; fi
 grep -q 'log in as the repository owner' "$temp/out" || fail 'non-owner not explained'
@@ -94,6 +99,13 @@ if printf 'owner pass\n' | GNUPGHOME="$temp/gnupg-empty" setup --yes > "$temp/ou
 grep -q 'is not in' "$temp/out" || fail 'missing key not explained'
 cp "$temp/pristine.json" "$GH_MOCK_STATE"
 if printf 'owner pass\n' | setup --unknown > "$temp/out" 2>&1; then fail 'unknown option accepted'; fi
+jq '.environment.can_admins_bypass = true' "$temp/pristine.json" > "$GH_MOCK_STATE"
+if printf 'owner pass\n' | setup --yes > "$temp/out" 2>&1; then fail 'bypassable environment accepted'; fi
+grep -q 'sole reviewer and disable bypasses' "$temp/out" || fail 'unsafe environment not explained'
+jq '.deploy_keys[0].read_only = false' "$temp/pristine.json" > "$GH_MOCK_STATE"
+if printf 'owner pass\n' | setup --yes > "$temp/out" 2>&1; then fail 'unrelated write access accepted'; fi
+grep -q 'unrelated writable deploy key' "$temp/out" || fail 'unrelated deploy key not explained'
+cp "$temp/pristine.json" "$GH_MOCK_STATE"
 
 # ---- the real run
 printf 'owner pass\n' | setup --yes > "$temp/run.log" 2>&1 || { cat "$temp/run.log" >&2; fail 'setup failed'; }
@@ -144,8 +156,15 @@ grep -q 'approved run' "$temp/state.log" || fail 'release deployment was not app
 # The published index is co-signed by the primary key; the original keyring accepts it.
 git clone -q "$repos/jasonachkar__homebrew-lasa.git" "$temp/published"
 python3 -I "$root/scripts/release/dearmor.py" "$temp/original-keyring.asc" "$temp/original.gpg"
-gpgv --keyring "$temp/original.gpg" "$temp/published/apt/dists/stable/InRelease" 2>/dev/null || fail 'original keyring rejects the co-signed index'
-gpgv --keyring "$temp/original.gpg" "$temp/published/apt/dists/stable/Release.gpg" "$temp/published/apt/dists/stable/Release" 2>/dev/null || fail 'Release.gpg not co-signed'
+release_dir="$temp/published/apt/dists/stable"
+status=$(gpg --homedir "$owner" --batch --status-fd 1 --verify "$release_dir/InRelease" 2>/dev/null)
+for signer in "$primary" "$subkey"; do
+  grep -Fq "VALIDSIG $signer " <<< "$status" || fail 'InRelease does not have both signatures'
+done
+status=$(gpg --homedir "$owner" --batch --status-fd 1 --verify "$release_dir/Release.gpg" "$release_dir/Release" 2>/dev/null)
+for signer in "$primary" "$subkey"; do
+  grep -Fq "VALIDSIG $signer " <<< "$status" || fail 'Release.gpg does not have both signatures'
+done
 grep -q 'Version: 0.2.2' "$temp/published/apt/dists/stable/Release" || fail 'co-signed the wrong index'
 if command -v apt-get >/dev/null && command -v apt-ftparchive >/dev/null; then
   # Real APT, trusting only the keyring installed before this setup.
@@ -166,7 +185,7 @@ if command -v apt-get >/dev/null && command -v apt-ftparchive >/dev/null; then
       -o Debug::NoLocking=1 -o "APT::Sandbox::User=$(id -un)" -o APT::Update::Error-Mode=any update > "$temp/apt.log" 2>&1
   }
   if apt_update; then fail 'original keyring accepted a subkey-only index; the co-signature would be unnecessary'; fi
-  gpg --homedir "$owner" --batch --yes --pinentry-mode loopback --passphrase 'owner pass' --local-user "$primary!" --clearsign --output "$apt_site/dists/stable/InRelease" "$apt_site/dists/stable/Release"
+  gpg --homedir "$owner" --batch --yes --pinentry-mode loopback --passphrase 'owner pass' --local-user "$primary!" --local-user "$subkey!" --clearsign --output "$apt_site/dists/stable/InRelease" "$apt_site/dists/stable/Release"
   apt_update || { cat "$temp/apt.log" >&2; fail 'real APT with the original keyring rejected the primary co-signature'; }
 fi
 
@@ -191,4 +210,4 @@ rotated=$(state '.vars.APT_SIGNING_SUBKEY_FINGERPRINT')
 git --git-dir "$repos/jasonachkar__lasa.git" show main:deploy/apt/lasa-archive-keyring.asc > "$temp/rotated-keyring.asc"
 bash "$root/scripts/release/check-keyring.sh" "$temp/rotated-keyring.asc" "$primary" "$rotated"
 [ "$(state '[.deploy_keys[] | select(.title == "LASA release automation")] | length')" = 1 ] || fail 'rotation left stale deploy keys'
-echo 'PASS: owner setup uploads only a passphrase-free signing subkey, a matching write deploy key and narrow ruleset bypasses, ships the keyring, runs the approved first release, co-signs it for old keyrings (verified with real APT), and is idempotent and rotatable'
+echo 'PASS: owner setup stores only the signing subkey, verifies owner approval, preserves unrelated keys, ships the keyring and co-signs the approved first release. Rerun and rotation passed.'

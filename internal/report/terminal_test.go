@@ -1,6 +1,10 @@
 package report
 
 import (
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -9,6 +13,32 @@ import (
 	"github.com/jasonachkar/lasa/internal/diagnostics"
 	"github.com/jasonachkar/lasa/internal/domain"
 )
+
+var updateTerminalGolden = flag.Bool("update-terminal", false, "refresh terminal output fixtures")
+
+func TestTerminalGolden(t *testing.T) {
+	for _, columns := range []int{44, 110} {
+		t.Run(fmt.Sprint(columns), func(t *testing.T) {
+			output := RenderTerminal(terminalFixture(), TerminalOptions{Width: columns})
+			_, body, _ := strings.Cut(string(output), "\n")
+			// The version banner is release-specific; the layout fixture is not.
+			output = []byte("LASA VERSION\n" + body)
+			path := filepath.Join("testdata", fmt.Sprintf("terminal-%d.golden", columns))
+			if *updateTerminalGolden {
+				if err := os.WriteFile(path, output, 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(output) != string(want) {
+				t.Fatalf("terminal output differs from %s\n%s", path, output)
+			}
+		})
+	}
+}
 
 func terminalFixture() domain.Snapshot {
 	common := "Conditional scenario: no vulnerability, successful compromise, or exploitation has been established."
@@ -19,7 +49,8 @@ func terminalFixture() domain.Snapshot {
 		Files:     []domain.File{{ID: "file", Path: "/etc/sudoers.d/evil", Mode: 0o100666, UID: 1000, GID: 1000, Kind: "sudoers"}},
 		Processes: []domain.Process{{ID: "proc", PID: 812, Executable: "/usr/bin/redis"}},
 		Findings: []domain.Finding{
-			{ID: "bbbbbbbb11111111", RuleID: "LASA-003", RuleVersion: "1", Title: "Local listener", Severity: "low", Priority: 15, Subject: "proc",
+			{ID: "bbbbbbbb11111111", RuleID: "LASA-003", RuleVersion: "1", Title: "Local listener", Severity: "low", Priority: 15,
+				Confidence: "medium", Exposure: domain.UnknownExposure, Subject: "proc",
 				Suppressed: true, SuppressionReason: "Reviewed exception", Warnings: []string{common}},
 			{ID: "aaaaaaaa22222222", RuleID: "LASA-009", RuleVersion: "1", Title: "Writable sudoers configuration",
 				Severity: "high", Priority: 81, Confidence: "high", Exposure: domain.UnknownExposure,

@@ -153,6 +153,10 @@ def api(state, args):
     match = re.fullmatch(r"repos/([^/]+/[^/]+)", path)
     if match:
         return emit(jq({"owner": {"login": "jasonachkar"}, "full_name": match[1]}, expression))
+    if path == "repos/jasonachkar/lasa/environments/release":
+        return emit(jq(state["environment"], expression))
+    if path == "repos/jasonachkar/lasa/environments/release/deployment-branch-policies":
+        return emit(jq({"branch_policies": state["deployment_branches"]}, expression))
     match = re.fullmatch(r"repos/([^/]+/[^/]+)/contents/(.+)", path)
     if match:
         try:
@@ -181,7 +185,7 @@ def api(state, args):
             keys.append(key)
             log(f"added deploy key {key['id']} read_only={key['read_only']}")
             return emit(jq(key, expression))
-        return emit(jq(keys, expression))
+        return emit(jq([keys] if "--slurp" in args else keys, expression))
     match = re.fullmatch(r"repos/([^/]+/[^/]+)/rulesets(?:/(\d+))?", path)
     if match:
         rulesets = state["rulesets"][match[1]]
@@ -204,7 +208,8 @@ def api(state, args):
                 run["status"] = "in_progress"
                 publish_release(state, match[2])
                 return emit(jq([{}], expression))
-            pending = [{"environment": {"id": 7, "name": "release"}}] if run["status"] == "waiting" else []
+            pending = ([{"environment": {"id": 7, "name": "release"}, "current_user_can_approve": True}]
+                       if run["status"] == "waiting" else [])
             return emit(jq(pending, expression))
         return emit(jq(run, expression))
     fail(f"unexpected gh api call: {args}", 90)

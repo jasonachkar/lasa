@@ -25,7 +25,7 @@
 #   7. Co-signs that release's APT index with the primary key, so machines
 #      installed with the older keyring upgrade into the new one.
 #
-# Requires: bash, gh (logged in as the repository owner), gpg, git, jq,
+# Requires: bash, gh (logged in as the repository owner), GnuPG, git, jq,
 # ssh-keygen, curl. Compatible with macOS's system Bash 3.2.
 set -euo pipefail
 umask 077
@@ -74,7 +74,7 @@ wait_until() { # wait_until DESCRIPTION MAX_MINUTES COMMAND...
 # ---------------------------------------------------------------- preflight
 stage='checking tools and GitHub access'
 say 'Checking prerequisites'
-for tool in gh gpg git jq ssh-keygen curl; do
+for tool in gh gpg gpg-connect-agent git jq ssh-keygen curl; do
   command -v "$tool" >/dev/null || die "Missing tool: $tool"
 done
 [[ $repo =~ ^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$ ]] || die "Invalid repository: $repo"
@@ -90,6 +90,25 @@ primary=$(gh variable get APT_SIGNING_FINGERPRINT --repo "$repo")
 pinned=$(gh api "repos/$repo/contents/deploy/apt/primary-fingerprint?ref=main" -H 'Accept: application/vnd.github.raw')
 [ "$pinned" = "$primary" ] || die "The fingerprint pinned on main ($pinned) differs from APT_SIGNING_FINGERPRINT ($primary)"
 info "Repository $repo, package site $distribution ($branch), APT key $primary"
+
+# Verify the controls that keep credentials away from PRs and require approval
+# before the release job can use them. A failed preflight never changes settings.
+policy=$(gh api "repos/$repo/environments/release")
+if ! jq -e --arg owner "$owner" '
+  .can_admins_bypass == false and
+  .deployment_branch_policy == {protected_branches: false, custom_branch_policies: true} and
+  ([.protection_rules[] | select(.type == "required_reviewers") |
+    {prevent_self_review, reviewers: [.reviewers[] | {type, login: .reviewer.login}]}] ==
+    [{prevent_self_review: false, reviewers: [{type: "User", login: $owner}]}])' <<< "$policy" >/dev/null; then
+  die 'The release environment must require the owner as its sole reviewer and disable bypasses'
+fi
+policies=$(gh api "repos/$repo/environments/release/deployment-branch-policies")
+jq -e '[.branch_policies[] | {name, type}] == [{name: "main", type: "branch"}]' <<< "$policies" >/dev/null ||
+  die 'The release environment must allow deployments only from main'
+title='LASA release automation'
+keys=$(gh api "repos/$distribution/keys" --paginate --slurp)
+jq -e --arg name "$title" 'all(.[][]; .read_only or .title == $name)' <<< "$keys" >/dev/null ||
+  die 'The package site has an unrelated writable deploy key; review it before enabling publishing'
 
 work=$(mktemp -d /tmp/lasa-ci.XXXXXX)
 cleanup() {
@@ -113,19 +132,22 @@ if [ -z "${GNUPGHOME:-}" ]; then
     export GNUPGHOME="$work/keyring"
   fi
 fi
-secret=$(gpg --batch --with-colons --fixed-list-mode --list-secret-keys "$primary" 2>/dev/null || true)
+secret=$(gpg --batch --with-colons --with-keygrip --fixed-list-mode --list-secret-keys "$primary" 2>/dev/null || true)
 [ -n "$secret" ] || die "The private APT key $primary is not in ${GNUPGHOME:-~/.gnupg}. Run this on the machine that holds it, or set GNUPGHOME to its keyring."
 primary_state=$(printf '%s\n' "$secret" | awk -F: '$1=="sec"{print $15; exit}')
 [ "$primary_state" != '#' ] || die "Only a stub of primary key $primary is in this keyring; use the keyring that holds the private primary key."
 info "Found the private primary key in ${GNUPGHOME:-~/.gnupg}"
 
 printf '    Passphrase of the APT signing key (press Enter if it has none): '
-if [ -t 0 ]; then stty -echo; fi
-IFS= read -r passphrase || passphrase=
-if [ -t 0 ]; then stty echo; fi
+IFS= read -rs passphrase || passphrase=
 printf '\n'
 # Passphrases travel through a file descriptor, never through argv.
 gpg_unlocked() { gpg --batch --pinentry-mode loopback --passphrase-fd 3 "$@" 3< <(printf '%s' "$passphrase"); }
+# GnuPG can sign using an unlocked key even when the supplied passphrase is
+# wrong. Check the supplied value before creating keys or changing GitHub.
+keygrip=$(printf '%s\n' "$secret" | awk -F: '$1=="grp"{print $10; exit}')
+[[ $keygrip =~ ^[A-F0-9]{40}$ ]] || die 'Could not identify the primary keygrip'
+[ "$(gpg-connect-agent "CLEAR_PASSPHRASE --mode=normal $keygrip" /bye)" = OK ] || die 'Could not clear the cached primary-key passphrase'
 printf 'check\n' | gpg_unlocked --local-user "$primary!" --clearsign > /dev/null 2>&1 || die 'That passphrase does not unlock the APT signing key'
 
 # ------------------------------------------------------- 1. signing subkey
@@ -193,7 +215,6 @@ fi
 # ------------------------------------------------------- 2. deploy key
 stage='creating the distribution deploy key'
 say 'Distribution deploy key'
-title='LASA release automation'
 deploy_ids=$(gh api "repos/$distribution/keys" --jq ".[] | select(.title == \"$title\") | .id")
 deploy_writable=$(gh api "repos/$distribution/keys" --jq "[.[] | select(.title == \"$title\" and .read_only == false)] | length")
 if ! $rotate && has_secret DISTRIBUTION_DEPLOY_KEY && [ "$deploy_writable" = 1 ]; then
@@ -305,9 +326,11 @@ else
     # Resume an earlier release PR for the next version, or open one.
     major=${latest%%.*}; rest=${latest#*.}; minor=${rest%%.*}; patch=${rest#*.}
     version="$major.$minor.$((patch + 1))"
+    if tag_packages_subkey; then version=$latest; fi
     release_branch="release/v$version"
     pr=$(gh pr list --repo "$repo" --head "$release_branch" --state all --json number,state --jq '[.[] | select(.state != "CLOSED")][0].number // empty')
     if [ -z "$pr" ]; then
+      [ "$version" != "$latest" ] || die "Resume the release workflow for v$latest before creating another release"
       clone="$work/release-pr"
       gh repo clone "$repo" "$clone" -- --quiet --depth 1 --branch main
       git -C "$clone" checkout --quiet -b "$release_branch"
@@ -352,7 +375,8 @@ else
       wait_until 'the release build (it waits for CI, then builds; about 30-60 minutes)' 240 awaiting_approval
       if [ "$(run_field status)" != completed ]; then
         if confirm "Approve publishing LASA $version to GitHub Releases, APT and lasa.secureobs.com?"; then
-          environment=$(gh api "repos/$repo/actions/runs/$run/pending_deployments" --jq '.[] | select(.environment.name == "release") | .environment.id')
+          environment=$(gh api "repos/$repo/actions/runs/$run/pending_deployments" --jq '.[] | select(.environment.name == "release" and .current_user_can_approve) | .environment.id')
+          [[ $environment =~ ^[0-9]+$ ]] || die 'The owner cannot approve the release environment on this run'
           gh api --method POST "repos/$repo/actions/runs/$run/pending_deployments" -F "environment_ids[]=$environment" \
             -f state=approved -f comment="Approved by $login through scripts/setup-ci-publishing.sh" --jq 'length' >/dev/null
         else
@@ -382,9 +406,13 @@ else
       die 'Release and Release.gpg do not match; refusing to co-sign'
     # Machines installed before this setup trust only the primary key. They
     # need a primary signature to download the release carrying the new keyring.
-    gpg_unlocked --yes --local-user "$primary!" --digest-algo SHA256 --clearsign --output "$inrelease" "$release"
-    gpg_unlocked --yes --local-user "$primary!" --digest-algo SHA256 --armor --detach-sign --output "$site/apt/dists/stable/Release.gpg" "$release"
-    gpg --batch --status-fd 1 --verify "$inrelease" 2>/dev/null | grep -q "VALIDSIG $primary " || die 'Co-signature verification failed'
+    signers=(--local-user "$primary!" --local-user "$subkey!")
+    gpg_unlocked --yes "${signers[@]}" --digest-algo SHA256 --clearsign --output "$inrelease" "$release"
+    gpg_unlocked --yes "${signers[@]}" --digest-algo SHA256 --armor --detach-sign --output "$site/apt/dists/stable/Release.gpg" "$release"
+    status=$(gpg --batch --status-fd 1 --verify "$inrelease" 2>/dev/null)
+    for signer in "$primary" "$subkey"; do
+      grep -Fq "VALIDSIG $signer " <<< "$status" || die 'Co-signature verification failed'
+    done
     git -C "$site" add apt/dists/stable/InRelease apt/dists/stable/Release.gpg
     git -C "$site" -c user.name="$login" -c user.email="$(gh api user --jq '"\(.id)+\(.login)@users.noreply.github.com"')" \
       commit --quiet -m 'Sign the APT index with the primary key for clients upgrading from the original keyring'

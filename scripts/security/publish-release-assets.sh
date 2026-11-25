@@ -37,7 +37,11 @@ if [[ -z $id ]]; then
     gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes
   fi
   rm -f "$notes"
-  id=$(lookup)
+  for attempt in 1 2 3 4 5; do
+    id=$(lookup)
+    [[ -z $id ]] || break
+    if [[ $attempt != 5 ]]; then sleep 2; fi
+  done
 fi
 [[ $id =~ ^[0-9]+$ ]] || { echo 'No unique release was found for the tag.' >&2; exit 1; }
 endpoint="repos/$GITHUB_REPOSITORY/releases/$id"
