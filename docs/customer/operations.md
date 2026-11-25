@@ -24,6 +24,8 @@ Send SIGTERM or SIGINT for graceful shutdown. An in-progress scan receives cance
 
 Retention limits snapshot **count**. At 96 reports and a 15-minute delay, the nominal window is about a day plus scan time, but timing, restarts and errors change it. Large reports can consume substantial storage. Set disk monitoring and an external byte/time retention policy if required; LASA does not promise a total disk quota.
 
+When LASA runs under a cgroup v2 memory limit, such as the example units' `MemoryMax=512M` or a container limit, it sets the Go runtime's soft memory limit to 80% of that limit, so large scans collect memory more often instead of being terminated by the kernel. Set `GOMEMLIMIT` to override this. Very broad roots still cost time and memory; a scan whose report would exceed 64 MiB omits file metadata that no finding depends on and records the omission.
+
 Only correctly named, scanner-owned regular snapshots are removed by built-in retention. Unrelated files, symlinks, locks and leftover temporary files are retained. Do not use the state directory as a general-purpose document directory. Backups and copied reports need their own access and deletion policies.
 
 ## systemd

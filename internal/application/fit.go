@@ -8,8 +8,9 @@ import (
 	"github.com/jasonachkar/lasa/internal/report"
 )
 
-// fitAttempts bounds how often the analysis is repeated while reducing scope.
-const fitAttempts = 6
+// fitAttempts bounds re-analysis when the first reduced scope still does not
+// fit, which only happens when per-file estimates are off.
+const fitAttempts = 4
 
 // fitExport keeps a scan exportable. Reports above the export limit cannot
 // be written or read back, so instead of discarding the whole scan the file
@@ -18,6 +19,10 @@ const fitAttempts = 6
 // are kept in collection order, which is breadth-first from each root. The
 // omission is recorded as incomplete filesystem coverage and a diagnostic,
 // so the reduced scope can never be mistaken for a clean result.
+//
+// Sizes are computed exactly without building the document, and the scope is
+// chosen from each file's measured contribution, so a reduction normally
+// needs a single additional analysis and bounded memory.
 func (e Engine) fitExport(collected, analyzed domain.Snapshot) (domain.Snapshot, error) {
 	limit := e.ExportLimit
 	if limit <= 0 {
@@ -25,7 +30,7 @@ func (e Engine) fitExport(collected, analyzed domain.Snapshot) (domain.Snapshot,
 	}
 	// Leave headroom for suppression metadata applied after the scan.
 	budget := limit - limit/16
-	size, err := exportSize(analyzed)
+	size, err := report.Size(analyzed)
 	if err != nil || size <= budget {
 		return analyzed, err
 	}
@@ -36,30 +41,72 @@ func (e Engine) fitExport(collected, analyzed domain.Snapshot) (domain.Snapshot,
 			droppable = append(droppable, f)
 		}
 	}
-	keep := len(droppable)
-	for attempt := 0; attempt < fitAttempts && keep > 0; attempt++ {
-		// File metadata dominates report size, so scale the kept share by the
-		// overshoot, with a margin that shrinks the scope further on retries.
-		keep = int(float64(keep) * float64(budget) / float64(size) * 0.9)
-		candidate := reduceFiles(collected, protected, droppable[:keep], len(collected.Files))
-		if err = e.analyze(&candidate); err != nil {
-			return analyzed, err
-		}
-		if size, err = exportSize(candidate); err != nil {
-			return analyzed, err
-		}
-		if size <= budget {
-			return candidate, nil
-		}
+	costs, err := fileCosts(analyzed, droppable)
+	if err != nil {
+		return analyzed, err
 	}
-	// Nothing reducible remains (for example a process-dominated report);
-	// return the analysis unchanged so export reports the limit explicitly.
-	return analyzed, nil
+	var droppableBytes int
+	for _, c := range costs {
+		droppableBytes += c
+	}
+	// Room for the reduction diagnostic and changed coverage counters.
+	const slack = 4 << 10
+	room := budget - (size - droppableBytes) - slack
+	keep := 0
+	for keep < len(droppable) && costs[keep] <= room {
+		room -= costs[keep]
+		keep++
+	}
+	// The full analysis is no longer needed; let it be reclaimed before the
+	// reduced scope is analyzed.
+	analyzed = domain.Snapshot{}
+	var candidate domain.Snapshot
+	for attempt := 0; attempt < fitAttempts; attempt++ {
+		candidate = reduceFiles(collected, protected, droppable[:keep], len(collected.Files))
+		if err = e.analyze(&candidate); err != nil {
+			return candidate, err
+		}
+		if size, err = report.Size(candidate); err != nil || size <= budget || keep == 0 {
+			// Nothing reducible remains when keep is zero (for example a
+			// process-dominated report); export then reports the limit.
+			return candidate, err
+		}
+		keep = keep * 9 / 10
+	}
+	return candidate, nil
 }
 
-func exportSize(s domain.Snapshot) (int, error) {
-	raw, err := report.Marshal(s)
-	return len(raw), err
+// fileCosts returns, for each droppable file in order, the bytes it adds to
+// the export: its file entry, graph node, observations and rule evaluations.
+func fileCosts(s domain.Snapshot, droppable []domain.File) ([]int, error) {
+	index := make(map[string]int, len(droppable))
+	for i, f := range droppable {
+		index[f.ID] = i
+	}
+	costs := make([]int, len(droppable))
+	add := func(slice any, subject func(int) string) error {
+		sizes, err := report.ElementSizes(slice)
+		if err != nil {
+			return err
+		}
+		for i, n := range sizes {
+			if j, ok := index[subject(i)]; ok {
+				costs[j] += n
+			}
+		}
+		return nil
+	}
+	for _, step := range []func() error{
+		func() error { return add(s.Files, func(i int) string { return s.Files[i].ID }) },
+		func() error { return add(s.Observations, func(i int) string { return s.Observations[i].Subject }) },
+		func() error { return add(s.Evaluations, func(i int) string { return s.Evaluations[i].Subject }) },
+		func() error { return add(s.Graph.Nodes, func(i int) string { return s.Graph.Nodes[i].ID }) },
+	} {
+		if err := step(); err != nil {
+			return nil, err
+		}
+	}
+	return costs, nil
 }
 
 // protectedFiles returns files whose removal would change findings or the
@@ -104,22 +151,15 @@ func reduceFiles(collected domain.Snapshot, protected map[string]bool, kept []do
 		keep[f.ID] = true
 	}
 	s.Files = s.Files[:0]
+	removed := map[string]bool{}
 	for _, f := range collected.Files {
 		if protected[f.ID] || keep[f.ID] {
 			s.Files = append(s.Files, f)
-		}
-	}
-	omitted := total - len(s.Files)
-	present := map[string]bool{}
-	for _, f := range s.Files {
-		present[f.ID] = true
-	}
-	removed := map[string]bool{}
-	for _, f := range collected.Files {
-		if !present[f.ID] {
+		} else {
 			removed[f.ID] = true
 		}
 	}
+	omitted := total - len(s.Files)
 	s.Observations = s.Observations[:0]
 	for _, o := range collected.Observations {
 		if !removed[o.Subject] {

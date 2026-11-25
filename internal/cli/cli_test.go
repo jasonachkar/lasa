@@ -132,3 +132,12 @@ func TestDoctorReportsOpenat2AndEnvironment(t *testing.T) {
 		}
 	}
 }
+
+func TestDoctorStatesWhatAFailedCheckAffects(t *testing.T) {
+	for check, want := range map[string]string{"procfs": "scans cannot run", "ebpf_tracepoints": "only --profile sensor", "mount_visibility": "mount and read-only context"} {
+		got := doctorImpact(DoctorCheck{Name: check, Required: check == "procfs"})
+		if !strings.Contains(got, want) || strings.Contains(got, "dependent rules") {
+			t.Errorf("%s: %q", check, got)
+		}
+	}
+}

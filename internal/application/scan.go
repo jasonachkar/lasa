@@ -85,9 +85,11 @@ func (e Engine) Scan(parent context.Context, c config.Config) (domain.Snapshot, 
 	if err := e.analyze(&s); err != nil {
 		return s, err
 	}
+	// s is not referenced after this call, so the full analysis can be
+	// reclaimed while a reduced scope is analyzed.
 	fitted, err := e.fitExport(collected, s)
 	if err != nil {
-		return s, err
+		return fitted, err
 	}
 	fitted.Completed = time.Now().UTC()
 	return fitted, nil
