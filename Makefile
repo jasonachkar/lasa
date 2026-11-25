@@ -3,17 +3,24 @@ GO ?= go
 GO_VERSION := 1.27.4
 VERSION ?= 0.1.0-dev
 VULN_DB ?=
+FUZZTIME ?= 3s
+COVERAGE_MIN ?= 73
 BIN := bin/lasa
 LDFLAGS := -s -w -buildid= -X github.com/jasonachkar/lasa/internal/domain.Version=$(VERSION)
 export GOTOOLCHAIN := local
 
-.PHONY: all build test vet fmt lint vuln deps race check release-binaries reproducible tools security-tools bpf fuzz notices sbom packages print-version clean
+.PHONY: all build test coverage vet fmt lint vuln deps race check release-binaries reproducible tools security-tools bpf fuzz notices sbom packages print-version clean
 all: build
 build:
 	@mkdir -p bin
 	CGO_ENABLED=0 $(GO) build -trimpath -buildvcs=false -ldflags='$(LDFLAGS)' -o $(BIN) ./cmd/lasa
 test:
 	$(GO) test ./...
+coverage:
+	@mkdir -p .build
+	$(GO) test -coverpkg=./... -covermode=atomic -coverprofile=.build/coverage.out ./...
+	@$(GO) tool cover -func=.build/coverage.out > .build/coverage.txt
+	@awk -v min=$(COVERAGE_MIN) '/^total:/ { seen=1; print "Overall Go coverage " $$NF " (minimum " min "%)"; if ($$NF+0 < min) exit 1 } END { if (!seen) exit 1 }' .build/coverage.txt
 race:
 	CGO_ENABLED=1 $(GO) test -race ./...
 vet:
@@ -45,13 +52,13 @@ security-tools:
 bpf:
 	$(GO) generate ./internal/collector/ebpf
 fuzz:
-	$(GO) test ./internal/collector/process -run '^$$' -fuzz '^FuzzStat$$' -fuzztime=3s -parallel=2
-	$(GO) test ./internal/collector/process -run '^$$' -fuzz '^FuzzStatus$$' -fuzztime=3s -parallel=2
-	$(GO) test ./internal/collector/network -run '^$$' -fuzz '^FuzzSocket$$' -fuzztime=3s -parallel=2
-	$(GO) test ./internal/collector/network -run '^$$' -fuzz '^FuzzSocketTable$$' -fuzztime=3s -parallel=2
-	$(GO) test ./internal/collector/identity -run '^$$' -fuzz '^FuzzMountInfo$$' -fuzztime=3s -parallel=2
-	$(GO) test ./internal/rules -run '^$$' -fuzz '^FuzzLoad$$' -fuzztime=3s -parallel=2
-	$(GO) test ./internal/report -run '^$$' -fuzz '^FuzzDecode$$' -fuzztime=3s -parallel=2
+	$(GO) test ./internal/collector/process -run '^$$' -fuzz '^FuzzStat$$' -fuzztime=$(FUZZTIME) -parallel=2
+	$(GO) test ./internal/collector/process -run '^$$' -fuzz '^FuzzStatus$$' -fuzztime=$(FUZZTIME) -parallel=2
+	$(GO) test ./internal/collector/network -run '^$$' -fuzz '^FuzzSocket$$' -fuzztime=$(FUZZTIME) -parallel=2
+	$(GO) test ./internal/collector/network -run '^$$' -fuzz '^FuzzSocketTable$$' -fuzztime=$(FUZZTIME) -parallel=2
+	$(GO) test ./internal/collector/identity -run '^$$' -fuzz '^FuzzMountInfo$$' -fuzztime=$(FUZZTIME) -parallel=2
+	$(GO) test ./internal/rules -run '^$$' -fuzz '^FuzzLoad$$' -fuzztime=$(FUZZTIME) -parallel=2
+	$(GO) test ./internal/report -run '^$$' -fuzz '^FuzzDecode$$' -fuzztime=$(FUZZTIME) -parallel=2
 notices:
 	sh scripts/package-notices.sh
 sbom: release-binaries notices

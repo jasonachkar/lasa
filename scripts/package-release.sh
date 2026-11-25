@@ -6,7 +6,7 @@ trap 'printf "Packaging failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' 
 cd "$(dirname "$0")/.."
 version=${1:?Usage: package-release.sh VERSION}
 [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected a stable MAJOR.MINOR.PATCH version' >&2; exit 1; }
-for tool in dpkg-deb tar gzip git; do command -v "$tool" >/dev/null || { echo "Missing packaging dependency: $tool" >&2; exit 1; }; done
+for tool in dpkg-deb tar gzip git gpg python3; do command -v "$tool" >/dev/null || { echo "Missing packaging dependency: $tool" >&2; exit 1; }; done
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git show -s --format=%ct HEAD)}
 [[ $SOURCE_DATE_EPOCH =~ ^[0-9]+$ ]] || exit 1
 stage=$(mktemp -d)
@@ -22,6 +22,12 @@ mkdir -p "$generated"
 "$generator" completion bash > "$generated/lasa.bash"
 "$generator" completion zsh > "$generated/_lasa"
 "$generator" completion fish > "$generated/lasa.fish"
+# The package carries the APT trust anchor so signing-subkey rotations reach
+# installed clients through ordinary upgrades. Only the pinned primary key is
+# accepted, and conversion is byte-for-byte deterministic.
+keyring_source=deploy/apt/lasa-archive-keyring.asc
+bash scripts/release/check-keyring.sh "$keyring_source" "$(cat deploy/apt/primary-fingerprint)"
+python3 -I scripts/release/dearmor.py "$keyring_source" "$generated/lasa-archive-keyring.gpg"
 # Packaged Markdown has no site navigation: point relative links at files
 # shipped alongside it or at the online documentation.
 customer_docs() {
@@ -38,7 +44,7 @@ for arch in amd64 arm64; do
   binary="dist/lasa-$version-linux-$arch"
   test -s "$binary"
   root="$stage/$arch"
-  mkdir -p "$root/usr/bin" "$root/usr/share/doc/lasa/examples" "$root/usr/share/man/man1" \
+  mkdir -p "$root/usr/bin" "$root/usr/share/doc/lasa/examples" "$root/usr/share/man/man1" "$root/usr/share/keyrings" \
     "$root/usr/share/bash-completion/completions" "$root/usr/share/zsh/vendor-completions" "$root/usr/share/fish/vendor_completions.d"
   install -m 0755 "$binary" "$root/usr/bin/lasa"
   cp -R dist/licenses "$root/usr/share/doc/lasa/"
@@ -47,6 +53,7 @@ for arch in amd64 arm64; do
   install -m 0644 "$generated/lasa.bash" "$root/usr/share/bash-completion/completions/lasa"
   install -m 0644 "$generated/_lasa" "$root/usr/share/zsh/vendor-completions/_lasa"
   install -m 0644 "$generated/lasa.fish" "$root/usr/share/fish/vendor_completions.d/lasa.fish"
+  install -m 0644 "$generated/lasa-archive-keyring.gpg" "$root/usr/share/keyrings/lasa-archive-keyring.gpg"
   # Examples only: package installation never creates a user or enables a scan.
   sed 's@/usr/local/bin/lasa@/usr/bin/lasa@g' deploy/systemd/lasa.service > "$root/usr/share/doc/lasa/examples/lasa.service"
   sed 's@/usr/local/bin/lasa@/usr/bin/lasa@g' deploy/systemd/lasa-deep.service > "$root/usr/share/doc/lasa/examples/lasa-deep.service"

@@ -13,6 +13,16 @@ apt_url=${5:?Missing APT URL}
 [[ $repository =~ ^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$ ]] || exit 1
 [[ $apt_url =~ ^https://[a-z0-9-]+\.github\.io/[A-Za-z0-9_.-]+/apt$ || $apt_url == https://lasa.secureobs.com/apt ]] || { echo 'Expected the LASA custom domain or a GitHub Pages HTTPS APT URL' >&2; exit 1; }
 [[ ${APT_SIGNING_FINGERPRINT:-} =~ ^[A-F0-9]{40}$ ]] || { echo 'APT_SIGNING_FINGERPRINT must identify exactly one signing key' >&2; exit 1; }
+# APT_SIGNING_KEYS optionally names the exact key(s) that sign, for example
+# "SUBKEY_FPR!" in CI, which holds only the signing subkey. Default: the
+# primary key (GnuPG then picks its newest usable signing key).
+read -r -a signing_keys <<< "${APT_SIGNING_KEYS:-$APT_SIGNING_FINGERPRINT}"
+signer_args=()
+for key in "${signing_keys[@]}"; do
+  [[ $key =~ ^[A-F0-9]{40}!?$ ]] || { echo "Invalid APT_SIGNING_KEYS entry: $key" >&2; exit 1; }
+  signer_args+=(--local-user "$key")
+done
+(( ${#signer_args[@]} > 0 )) || { echo 'No APT signing key selected' >&2; exit 1; }
 validity_days=${APT_VALIDITY_DAYS:-}
 if [[ -n $validity_days && ! $validity_days =~ ^([1-9]|[1-8][0-9]|90)$ ]]; then
   echo 'APT_VALIDITY_DAYS must be 1 through 90, or unset.' >&2
@@ -87,8 +97,8 @@ done
     done
   done
   grep -qx 'Acquire-By-Hash: yes' dists/stable/Release
-  gpg --batch --yes --local-user "$APT_SIGNING_FINGERPRINT" --digest-algo SHA256 --clearsign --output dists/stable/InRelease dists/stable/Release
-  gpg --batch --yes --local-user "$APT_SIGNING_FINGERPRINT" --digest-algo SHA256 --armor --detach-sign --output dists/stable/Release.gpg dists/stable/Release
+  gpg --batch --yes "${signer_args[@]}" --digest-algo SHA256 --clearsign --output dists/stable/InRelease dists/stable/Release
+  gpg --batch --yes "${signer_args[@]}" --digest-algo SHA256 --armor --detach-sign --output dists/stable/Release.gpg dists/stable/Release
   gpg --batch --armor --export "$APT_SIGNING_FINGERPRINT" > lasa-signing-key.asc
   test -s lasa-signing-key.asc
   printf '%s\n' "$APT_SIGNING_FINGERPRINT" > signing-key-fingerprint.txt

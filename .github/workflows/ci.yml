@@ -12,6 +12,7 @@ jobs:
   checks:
     env:
       VERSION: '0.0.0'
+      FUZZTIME: '15s'
     strategy:
       fail-fast: false
       matrix:
@@ -29,6 +30,8 @@ jobs:
       - run: make tools
       - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - run: make check fuzz reproducible sbom
+      - if: matrix.runner == 'ubuntu-24.04'
+        run: make coverage
       - run: python3 scripts/security/verify-release-assets.py --sboms dist "$VERSION"
       - name: Package and signed repository integration
         if: matrix.runner == 'ubuntu-24.04'
@@ -39,9 +42,19 @@ jobs:
           bash test/distribution.sh
           bash test/versioning.sh
           bash test/release-security.sh
+          bash test/release-automation.sh
+          bash test/setup-ci-publishing.sh
+          bash test/publish-site.sh
           bash test/domain.sh
           bash test/bootstrap-distribution.sh
-          shellcheck scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-docs.sh scripts/install-apt-body.sh scripts/security/*.sh test/release-security.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh test/installed-smoke.sh scripts/generate-bpf.sh
+          shellcheck scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-docs.sh scripts/install-apt-body.sh scripts/setup-ci-publishing.sh scripts/release/*.sh scripts/security/*.sh test/release-security.sh test/release-automation.sh test/setup-ci-publishing.sh test/publish-site.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh test/installed-smoke.sh test/scan-boundaries.sh scripts/generate-bpf.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: matrix.runner == 'ubuntu-24.04'
+        with:
+          name: installed-test-packages
+          path: dist/lasa_0.0.0_*.deb
+          if-no-files-found: error
+          retention-days: 1
       - name: Real container view smoke test
         run: |
           version=$(make -s print-version)
@@ -52,6 +65,50 @@ jobs:
           trap 'rm -rf "$report_dir"' EXIT
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges lasa-ci scan --profile container --format json > "$report_dir/report.json"
           ./bin/lasa report --input "$report_dir/report.json" --format html --output "$report_dir/report.html"
+  installed-packages:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: Debian 13
+            runner: ubuntu-24.04
+            arch: amd64
+            base: debian:13-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
+          - distro: Ubuntu 22.04
+            runner: ubuntu-24.04
+            arch: amd64
+            base: ubuntu:22.04@sha256:b000e69a50ff940390233025e7a337fb8469b509e2334fa4d018ac30f3e18cdb
+          - distro: Ubuntu 24.04
+            runner: ubuntu-24.04
+            arch: amd64
+            base: ubuntu:24.04@sha256:562111b88caa79c71391c0c4d3c2114a7d5c35915c20561fd893cb1e07929e6b
+          - distro: Ubuntu 24.04
+            runner: ubuntu-24.04-arm
+            arch: arm64
+            base: ubuntu:24.04@sha256:562111b88caa79c71391c0c4d3c2114a7d5c35915c20561fd893cb1e07929e6b
+    name: Installed package (${{ matrix.distro }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: installed-test-packages
+          path: dist
+          digest-mismatch: error
+      - name: Test the installed DEB as an unprivileged user without network access
+        env:
+          BASE_IMAGE: ${{ matrix.base }}
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        run: |
+          docker build --build-arg "BASE_IMAGE=$BASE_IMAGE" --build-arg "PACKAGE=dist/lasa_0.0.0_$PACKAGE_ARCH.deb" \
+            -f test/installed-package.Dockerfile -t lasa-installed-test .
+          docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
+            -e EXPECTED_VERSION=0.0.0 --mount "type=bind,src=$PWD/test,dst=/test,readonly" \
+            lasa-installed-test bash -ec 'bash /test/installed-smoke.sh; bash /test/scan-boundaries.sh'
   bpf-build:
     strategy:
       fail-fast: false
@@ -86,10 +143,12 @@ jobs:
           /bin/bash test/bootstrap-distribution.sh
           /bin/bash test/domain.sh
           /bin/bash test/versioning.sh
+          /bin/bash test/release-automation.sh
+          /bin/bash test/setup-ci-publishing.sh
 
   security:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -107,16 +166,43 @@ jobs:
           actionlint
           PYTHONDONTWRITEBYTECODE=1 python3 test/repository-settings.py
           bash scripts/security/scan-history.sh
+      - uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          fail-on-severity: moderate
+      - name: Audit workflows and Dockerfiles without third-party Actions
+        run: |
+          docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,src=$PWD,dst=/src,readonly" --workdir /src \
+            ghcr.io/zizmorcore/zizmor:1.33.1@sha256:ecd3ffe6158de1322e05a044ed43749bee12b1dccb7e1a7859bc6ac4b2a1c516 \
+            --offline --strict-collection --min-severity medium .
+          for file in bpf/Dockerfile deploy/container/Dockerfile test/installed-package.Dockerfile; do
+            docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges -i --entrypoint hadolint \
+              hadolint/hadolint:v2.15.1-alpine@sha256:a1d49ae1a4e83c1dbad26b8c1ad7588c8bd1e04f4866b34ad3cac50335198552 \
+              --failure-threshold error - < "$file"
+          done
+      - name: Scan Go code and dependency manifests
+        run: |
+          go_bin=$(go env GOPATH)/bin
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.30.0
+          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.7.1
+          "$go_bin/gosec" -severity high -confidence medium -exclude-generated ./...
+          "$go_bin/osv-scanner" scan source --lockfile go.mod
+      - name: Check the source tree for vulnerable dependencies and secrets
+        run: |
+          docker run --rm --mount "type=bind,src=$PWD,dst=/src,readonly" \
+            ghcr.io/aquasecurity/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
+            fs --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 --skip-dirs /src/.git /src
   docs:
     uses: ./.github/workflows/docs.yml
   gate:
     name: LASA verification gate
     if: always()
-    needs: [checks, bpf-build, macos-publishing-bootstrap, security, docs]
+    needs: [checks, installed-packages, bpf-build, macos-publishing-bootstrap, security, docs]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     env:
       CHECK_RESULTS: ${{ join(needs.*.result, ' ') }}
     steps:
-      - run: test "$CHECK_RESULTS" = 'success success success success success'
+      - run: test "$CHECK_RESULTS" = 'success success success success success success'

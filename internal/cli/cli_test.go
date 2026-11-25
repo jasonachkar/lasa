@@ -3,11 +3,13 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/jasonachkar/lasa/internal/domain"
+	"github.com/jasonachkar/lasa/internal/rules"
 )
 
 func TestCommands(t *testing.T) {
@@ -31,6 +33,46 @@ func TestInvalidFlags(t *testing.T) {
 		if e := cmd.ExecuteContext(context.Background()); e == nil {
 			t.Fatalf("bad config accepted: %v", args)
 		}
+	}
+}
+
+func TestRuleMetadataCommands(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		check   func(*testing.T, []byte)
+	}{
+		{"list", func(t *testing.T, data []byte) {
+			var pack rules.Pack
+			if err := json.Unmarshal(data, &pack); err != nil || pack.Schema != rules.Schema || len(pack.Rules) == 0 {
+				t.Fatalf("invalid rules list: %v", err)
+			}
+		}},
+		{"predicates", func(t *testing.T, data []byte) {
+			var predicates []struct{ Name, Subject, Type string }
+			if err := json.Unmarshal(data, &predicates); err != nil || len(predicates) == 0 {
+				t.Fatalf("invalid predicate inventory: %v", err)
+			}
+			seen := make(map[string]bool)
+			for _, predicate := range predicates {
+				if predicate.Name == "" || predicate.Subject == "" || predicate.Type == "" || seen[predicate.Name] {
+					t.Fatalf("invalid or duplicate predicate: %+v", predicate)
+				}
+				seen[predicate.Name] = true
+			}
+		}},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			var out, stderr bytes.Buffer
+			cmd := New(&out, &stderr)
+			cmd.SetArgs([]string{"rules", tc.command, "--format", "json"})
+			if err := cmd.ExecuteContext(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if stderr.Len() > 0 {
+				t.Fatalf("unexpected stderr: %s", stderr.String())
+			}
+			tc.check(t, out.Bytes())
+		})
 	}
 }
 

@@ -2,14 +2,18 @@
 set -euo pipefail
 : "${GITHUB_REPOSITORY:?}"
 if [[ ${GITHUB_ACTIONS:-} == true ]]; then
-  echo 'Run publication locally with GitHub CLI authenticated as the repository owner.' >&2
-  exit 1
+  # Only the protected release workflow on main may publish from Actions.
+  [[ ${GITHUB_WORKFLOW_REF:-} == "$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/heads/main" ]] || {
+    echo 'Only the release workflow on main may publish from GitHub Actions.' >&2
+    exit 1
+  }
+else
+  owner=$(gh api "repos/$GITHUB_REPOSITORY" --jq .owner.login)
+  [[ -n $owner && $(gh api user --jq .login) == "$owner" ]] || {
+    echo 'Publication requires GitHub CLI authentication as the repository owner.' >&2
+    exit 1
+  }
 fi
-owner=$(gh api "repos/$GITHUB_REPOSITORY" --jq .owner.login)
-[[ -n $owner && $(gh api user --jq .login) == "$owner" ]] || {
-  echo 'Publication requires GitHub CLI authentication as the repository owner.' >&2
-  exit 1
-}
 tag=${1:?Specify the release tag}
 directory=${2:?Specify the asset directory}
 root=$(cd "$(dirname "$0")" && pwd)
@@ -26,8 +30,18 @@ lookup() {
 }
 id=$(lookup)
 if [[ -z $id ]]; then
-  gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes
-  id=$(lookup)
+  notes=$(mktemp)
+  if bash "$root/../release/notes.sh" "$version" > "$notes" 2>/dev/null; then
+    gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "LASA $version" --notes-file "$notes"
+  else
+    gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes
+  fi
+  rm -f "$notes"
+  for attempt in 1 2 3 4 5; do
+    id=$(lookup)
+    [[ -z $id ]] || break
+    if [[ $attempt != 5 ]]; then sleep 2; fi
+  done
 fi
 [[ $id =~ ^[0-9]+$ ]] || { echo 'No unique release was found for the tag.' >&2; exit 1; }
 endpoint="repos/$GITHUB_REPOSITORY/releases/$id"

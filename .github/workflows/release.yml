@@ -1,25 +1,64 @@
-name: Build and attest release artifacts
+name: Release
+# Merging a release PR (one that turns "## Unreleased" in CHANGELOG.md into a
+# dated version heading; see scripts/release/prepare.sh) publishes that
+# version end to end. The build runs without secrets; publication waits for
+# the owner's approval of the `release` environment, which alone holds the APT
+# signing subkey and the distribution deploy key.
 on:
+  push:
+    branches: [main]
+    paths: [CHANGELOG.md]
   workflow_dispatch:
     inputs:
-      tag:
-        description: Existing stable tag pointing at the selected main commit
+      version:
+        description: Retry publishing VERSION (X.Y.Z); it must be the newest CHANGELOG release at the tip of main
         required: true
         type: string
 permissions: {}
 concurrency:
   group: lasa-release
   cancel-in-progress: false
-env:
-  RELEASE_TAG: ${{ inputs.tag }}
 jobs:
-  build:
-    if: github.ref == 'refs/heads/main'
+  plan:
+    if: github.ref == 'refs/heads/main' && github.repository == 'jasonachkar/lasa'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: plan
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            version=$(bash scripts/release/plan.sh dispatch "$GITHUB_SHA" "$REQUESTED")
+          else
+            version=$(bash scripts/release/plan.sh push "$GITHUB_SHA")
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ -n "$version" ]; then
+            echo "Releasing LASA $version from $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Not a release commit; nothing to publish.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.version != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 200
     permissions:
       contents: read
       actions: read
+    env:
+      RELEASE_TAG: v${{ needs.plan.outputs.version }}
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     steps:
@@ -27,10 +66,14 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Wait for the full verification run on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/release/wait-for-ci.sh "$GITHUB_SHA"
       - name: Verify source before executing build code
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/security/verify-release-source.sh "$RELEASE_TAG"
+        run: bash scripts/security/verify-release-source.sh "$RELEASE_TAG" --tag-may-be-absent
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
@@ -54,16 +97,21 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  attest:
-    needs: build
+  publish:
+    needs: [plan, build]
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    environment: release
+    timeout-minutes: 60
+    environment:
+      name: release
+      url: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.plan.outputs.version }}
     permissions:
-      contents: read
+      contents: write
       actions: read
       id-token: write
       attestations: write
+    env:
+      RELEASE_TAG: v${{ needs.plan.outputs.version }}
+      AUTOMATED: ${{ vars.PUBLISHING_PROVIDER == 'github-actions' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -78,3 +126,52 @@ jobs:
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-path: release-assets/SHA256SUMS
+      - name: Manual publication notice
+        if: env.AUTOMATED != 'true'
+        run: |
+          echo "Built and attested $RELEASE_TAG. Automated publishing is not configured;" >> "$GITHUB_STEP_SUMMARY"
+          echo 'run scripts/setup-ci-publishing.sh once, or follow docs/maintainer/publishing.md.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Install publishing tools
+        if: env.AUTOMATED == 'true'
+        run: |
+          sudo apt-get update -o APT::Update::Error-Mode=any
+          sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        if: env.AUTOMATED == 'true'
+        with:
+          python-version: '3.12'
+      - name: Install pinned documentation tools
+        if: env.AUTOMATED == 'true'
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-docs.txt
+      - name: Create the immutable release tag
+        if: env.AUTOMATED == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/release/create-tag.sh "$RELEASE_TAG" "$GITHUB_SHA"
+      - name: Verify provenance and publish the GitHub Release
+        if: env.AUTOMATED == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/security/publish-release-assets.sh "$RELEASE_TAG" release-assets
+      - name: Publish signed APT repository, Homebrew formula and documentation
+        if: env.AUTOMATED == 'true'
+        env:
+          APT_SIGNING_SUBKEY: ${{ secrets.APT_SIGNING_SUBKEY }}
+          DISTRIBUTION_DEPLOY_KEY: ${{ secrets.DISTRIBUTION_DEPLOY_KEY }}
+          APT_SIGNING_FINGERPRINT: ${{ vars.APT_SIGNING_FINGERPRINT }}
+          APT_SIGNING_SUBKEY_FINGERPRINT: ${{ vars.APT_SIGNING_SUBKEY_FINGERPRINT }}
+          DISTRIBUTION_REPOSITORY: ${{ vars.DISTRIBUTION_REPOSITORY }}
+          DISTRIBUTION_BRANCH: ${{ vars.DISTRIBUTION_BRANCH }}
+          APT_REPOSITORY_URL: ${{ vars.APT_REPOSITORY_URL }}
+          SERVED_SITE_URL: ${{ vars.DOCS_SITE_URL }}
+        run: bash scripts/release/publish-site.sh "${RELEASE_TAG#v}" release-assets
+      - name: Summary
+        if: env.AUTOMATED == 'true'
+        run: |
+          {
+            echo "Published LASA ${RELEASE_TAG#v}:"
+            echo "- GitHub Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG"
+            echo "- APT: ${{ vars.APT_REPOSITORY_URL }} (suite stable)"
+            echo "- Documentation: ${{ vars.DOCS_SITE_URL }}${RELEASE_TAG#v}/"
+          } >> "$GITHUB_STEP_SUMMARY"

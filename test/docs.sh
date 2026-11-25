@@ -49,12 +49,14 @@ bash "$root/scripts/publish-docs.sh" "$temp/second" 0.2.0
   git cat-file -e pages:0.1.0/index.html
   git cat-file -e pages:0.2.0/index.html
   git cat-file -e pages:latest/index.html
+  git show pages:current/index.html | grep -q '0.2.0'
 )
 python - "$temp/versions.json" <<'PY'
 import json, sys
 versions = {v['version']: v for v in json.load(open(sys.argv[1]))}
-assert set(versions) == {'current', '0.1.0', '0.2.0'}
-assert versions['0.2.0']['aliases'] == ['latest']
+# The original "current" version became an alias of the newest release.
+assert set(versions) == {'0.1.0', '0.2.0'}, versions
+assert sorted(versions['0.2.0']['aliases']) == ['current', 'latest'], versions
 assert not versions['0.1.0']['aliases']
 PY
 python scripts/check-docs-version.py 0.2.0 "$temp/versions.json"

@@ -25,7 +25,7 @@ type FS struct {
 func valid(p string) bool {
 	return p != "" && !filepath.IsAbs(p) && filepath.Clean(p) == p && p != ".." && !strings.HasPrefix(p, "../")
 }
-func Open(root, path string, flags int) (*os.File, error) {
+func Open(root, path string, flags uint64) (*os.File, error) {
 	if !valid(path) {
 		return nil, fmt.Errorf("invalid relative metadata path %q", path)
 	}
@@ -34,7 +34,7 @@ func Open(root, path string, flags int) (*os.File, error) {
 		return nil, e
 	}
 	defer unix.Close(fd)
-	n, e := unix.Openat2(fd, path, &unix.OpenHow{Flags: uint64(flags | unix.O_CLOEXEC), Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS})
+	n, e := unix.Openat2(fd, path, &unix.OpenHow{Flags: flags | unix.O_CLOEXEC, Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS})
 	if e != nil {
 		return nil, e
 	}

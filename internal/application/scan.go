@@ -75,7 +75,7 @@ func (e Engine) Scan(parent context.Context, c config.Config) (domain.Snapshot, 
 	for i := range s.RuntimeEvents {
 		e := &s.RuntimeEvents[i]
 		for _, p := range s.Processes {
-			if e.BootID == s.Host.BootID && p.Namespaces["pid"] == "pid:[4026531836]" && uint32(p.PID) == e.PID && p.StartTime == e.StartBootNS/10000000 {
+			if e.BootID == s.Host.BootID && p.Namespaces["pid"] == "pid:[4026531836]" && int64(p.PID) == int64(e.PID) && p.StartTime == e.StartBootNS/10000000 {
 				e.StaticSubject = p.ID
 				break
 			}
