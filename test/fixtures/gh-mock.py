@@ -90,7 +90,9 @@ def squash_merge(state, number):
     pr.update(state="MERGED", merge_sha=sha)
     if pr["title"].startswith("Release "):
         run = str(len(state["runs"]) + 1000)
-        state["runs"][run] = {"sha": sha, "status": "waiting", "conclusion": None,
+        state["runs"][run] = {"sha": sha, "head_sha": sha, "status": "waiting", "conclusion": None,
+                              "head_repository": {"full_name": repo}, "head_branch": "main",
+                              "path": ".github/workflows/release.yml", "event": "push",
                               "version": pr["title"].split()[1]}
     log(f"merged PR {number} as {sha}")
 
@@ -100,7 +102,7 @@ def publish_release(state, run_id):
     run = state["runs"][run_id]
     version, sha = run["version"], run["sha"]
     source = state["vars"]["DISTRIBUTION_REPOSITORY"]
-    git("--git-dir", str(bare("jasonachkar/lasa")), "tag", f"v{version}", sha)
+    assert git("--git-dir", str(bare("jasonachkar/lasa")), "rev-parse", f"refs/tags/v{version}^{{commit}}") == sha
     secret = state["secrets"].get("APT_SIGNING_SUBKEY")
     subkey = state["vars"].get("APT_SIGNING_SUBKEY_FINGERPRINT")
     if not secret or not subkey or state["vars"].get("PUBLISHING_PROVIDER") != "github-actions":
@@ -171,6 +173,17 @@ def api(state, args):
         tags = git("--git-dir", str(bare(match[1])), "tag", "-l").split()
         refs = [{"ref": f"refs/tags/{t}"} for t in tags if t.startswith(match[2])]
         return emit(jq(refs, expression))
+    match = re.fullmatch(r"repos/([^/]+/[^/]+)/commits/refs/tags/(v[\d.]+)", path)
+    if match:
+        sha = git("--git-dir", str(bare(match[1])), "rev-parse", f"refs/tags/{match[2]}^{{commit}}")
+        return emit(jq({"sha": sha}, expression))
+    if path == "repos/jasonachkar/lasa/git/refs" and method == "POST":
+        assert state["login"] == "jasonachkar"
+        tag = fields["ref"][0].removeprefix("refs/tags/")
+        sha = fields["sha"][0]
+        git("--git-dir", str(bare("jasonachkar/lasa")), "tag", tag, sha)
+        log(f"owner created tag {tag}")
+        return emit(jq({"ref": f"refs/tags/{tag}"}, expression))
     match = re.fullmatch(r"repos/([^/]+/[^/]+)/keys(?:/(\d+))?", path)
     if match:
         keys = state["deploy_keys"]
@@ -193,15 +206,18 @@ def api(state, args):
             return emit(jq([{"id": r["id"], "name": r["name"]} for r in rulesets], expression))
         ruleset = next(r for r in rulesets if str(r["id"]) == match[2])
         if method == "PUT":
+            assert match[1] == "jasonachkar/homebrew-lasa", "source rulesets must not be changed by setup"
             body = json.loads(sys.stdin.read())
             assert set(body) == {"name", "target", "enforcement", "conditions", "rules", "bypass_actors"}, body
             ruleset.update(body)
             log(f"updated ruleset {ruleset['name']}")
         return emit(jq(ruleset, expression))
-    match = re.fullmatch(r"repos/([^/]+/[^/]+)/actions/runs/(\d+)(/pending_deployments)?", path)
+    match = re.fullmatch(r"repos/([^/]+/[^/]+)/actions/runs/(\d+)(/pending_deployments|/jobs)?", path)
     if match:
         run = state["runs"][match[2]]
-        if match[3]:
+        if match[3] == "/jobs":
+            return emit(jq({"jobs": [{"name": "build", "id": 1, "conclusion": "success"}]}, expression))
+        if match[3] == "/pending_deployments":
             if method == "POST":
                 assert fields["state"] == ["approved"] and fields["environment_ids[]"] == ["7"]
                 log(f"approved run {match[2]}")

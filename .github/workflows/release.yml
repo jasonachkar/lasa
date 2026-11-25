@@ -96,6 +96,11 @@ jobs:
           path: release-assets/
           if-no-files-found: error
           retention-days: 7
+      - name: Show the owner approval command
+        if: vars.PUBLISHING_PROVIDER == 'github-actions'
+        run: |
+          printf 'From the owner checkout, tag and approve the release with:\n\n    bash scripts/release/approve.sh %s %s\n' \
+            "$GITHUB_RUN_ID" "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     needs: [plan, build]
@@ -117,6 +122,11 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Verify the owner-created release tag
+        if: env.AUTOMATED == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/security/verify-release-source.sh "$RELEASE_TAG"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           artifact-ids: ${{ needs.build.outputs.artifact }}
@@ -144,11 +154,6 @@ jobs:
         if: env.AUTOMATED == 'true'
         run: |
           python -m pip install --require-hashes --only-binary=:all: -r requirements-docs.txt
-      - name: Create the immutable release tag
-        if: env.AUTOMATED == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash scripts/release/create-tag.sh "$RELEASE_TAG" "$GITHUB_SHA"
       - name: Verify provenance and publish the GitHub Release
         if: env.AUTOMATED == 'true'
         env:

@@ -10,7 +10,7 @@ The legacy settings planner is for the initial private-source setup. Use the pub
 
 The source branch and tag write rules name the owner account explicitly. Main additionally requires a squash pull request, resolved conversations, the canonical hosted LASA gate, and CodeQL. The main ruleset has no bypass actor. Version tags cannot move or be deleted, and GitHub Releases are immutable after publication. Fork workflows require owner approval, default workflow permissions are read-only, and GitHub Actions actions must be SHA-pinned.
 
-The `release` environment admits `main` and requires owner approval before attestation or publication. When automated publishing is configured, the approved job can create immutable release tags and publish package metadata using a dedicated APT signing subkey and a package-site deployment key. The source branch rules retain owner-only writes and the package site's history rules block force pushes and deletion. See [publishing](publishing.md) for activation, rotation and recovery.
+The `release` environment admits `main` and requires owner approval before attestation or publication. The owner creates immutable release tags. CI verifies the tag and publishes package metadata using a dedicated APT signing subkey and a package-site deployment key. The source branch rules retain owner-only writes and the package site's history rules block force pushes and deletion. See [publishing](publishing.md) for activation, rotation and recovery.
 
 Verify personal account security from GitHub's settings pages. The GitHub CLI inventory cannot enumerate all installed apps or read the owner's two-factor configuration with the standard login.
 
