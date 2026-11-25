@@ -5,6 +5,7 @@
 # Compatible with macOS's system Bash 3.2.
 set -euo pipefail
 umask 077
+unset GITHUB_ACTIONS
 cd "$(dirname "$0")/.."
 root=$PWD
 temp=$(mktemp -d /tmp/lasa-setup-test.XXXXXX)
@@ -134,7 +135,7 @@ chmod 0600 "$temp/deploy"
 [ "$(ssh-keygen -y -f "$temp/deploy" | cut -d' ' -f1-2)" = "$(state '.deploy_keys[] | select(.title == "LASA release automation") | .key' | cut -d' ' -f1-2)" ] || fail 'deploy key secret does not match the registered key'
 
 # Rulesets: only the intended bypasses were added; rules untouched.
-[ "$(state '.rulesets["jasonachkar/lasa"][0].bypass_actors | map(.actor_type + ":" + (.actor_id|tostring)) | sort | join(",")')" = 'Integration:15368,User:83395276' ] || fail 'tag creation bypass wrong'
+[ "$(state '.rulesets["jasonachkar/lasa"][0].bypass_actors | map(.actor_type + ":" + (.actor_id|tostring)) | join(",")')" = 'User:83395276' ] || fail 'tag creation must remain owner-only'
 [ "$(state '.rulesets["jasonachkar/lasa"][1].bypass_actors | length')" = 0 ] || fail 'tag integrity ruleset must keep no bypass'
 [ "$(state '.rulesets["jasonachkar/homebrew-lasa"][0].bypass_actors | map(.actor_type) | sort | join(",")')" = 'DeployKey,User' ] || fail 'deploy key bypass wrong'
 [ "$(state '.rulesets["jasonachkar/homebrew-lasa"][1].bypass_actors | length')" = 0 ] || fail 'distribution integrity ruleset must keep no bypass'
@@ -151,7 +152,8 @@ bash "$root/scripts/release/check-keyring.sh" "$temp/main-keyring.asc" "$primary
 git --git-dir "$repos/jasonachkar__lasa.git" show main:CHANGELOG.md | grep -Eq '^## 0\.2\.2 — automated publishing \([0-9]{4}-[0-9]{2}-[0-9]{2}\)$' || fail 'release heading missing'
 git --git-dir "$repos/jasonachkar__lasa.git" show main:CHANGELOG.md | grep -q 'signed in CI by a dedicated signing subkey' || fail 'release notes missing'
 git --git-dir "$repos/jasonachkar__lasa.git" rev-parse -q --verify refs/tags/v0.2.2 > /dev/null || fail 'release not tagged'
-grep -q 'approved run' "$temp/state.log" || fail 'release deployment was not approved'
+awk '/owner created tag v0.2.2/ {tagged=1} /approved run/ && tagged {approved=1} END {exit !approved}' "$temp/state.log" ||
+  fail 'owner must create the tag before approving deployment'
 
 # The published index is co-signed by the primary key; the original keyring accepts it.
 git clone -q "$repos/jasonachkar__homebrew-lasa.git" "$temp/published"

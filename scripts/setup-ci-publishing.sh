@@ -14,14 +14,13 @@
 #   2. Creates a write deploy key for the distribution repository and stores
 #      its private half as the `release` environment secret
 #      DISTRIBUTION_DEPLOY_KEY.
-#   3. Lets the release workflow create v* tags (they still cannot be moved or
-#      deleted by anyone) and lets that deploy key push the package site
-#      (force pushes and deletion stay blocked).
+#   3. Lets that deploy key push the package site (force pushes and deletion
+#      stay blocked). The owner retains the release tag authority.
 #   4. Sets the public repository variables the release workflow reads.
 #   5. Opens a PR adding the subkey to the packaged APT keyring and
 #      auto-merges it once every required check passes.
-#   6. Runs the first automated release through a release PR and, after you
-#      confirm, approves its `release` environment deployment.
+#   6. Runs the first automated release through a release PR. After you
+#      confirm, your local owner session tags the commit and approves it.
 #   7. Co-signs that release's APT index with the primary key, so machines
 #      installed with the older keyring upgrade into the new one.
 #
@@ -233,25 +232,23 @@ fi
 # ------------------------------------------------------- 3. rulesets
 stage='updating repository rulesets'
 say 'Repository rulesets'
-add_bypass() { # add_bypass REPO RULESET_NAME ACTOR_JSON DESCRIPTION
-  local target=$1 name=$2 actor=$3 description=$4 id current updated
-  id=$(gh api "repos/$target/rulesets" --jq ".[] | select(.name == \"$name\") | .id")
-  [ -n "$id" ] || die "Ruleset '$name' was not found on $target"
-  current=$(gh api "repos/$target/rulesets/$id")
-  if printf '%s' "$current" | jq -e --argjson a "$actor" '.bypass_actors | any(.actor_type == $a.actor_type and .actor_id == $a.actor_id)' >/dev/null; then
-    info "$description: already allowed"
-    return
+site_rule=$(gh api "repos/$distribution/rulesets" --jq '.[] | select(.name == "LASA owner-only branch writes") | .id')
+[[ $site_rule =~ ^[0-9]+$ ]] || die "Could not identify the package site's branch write ruleset"
+rule_api="repos/$distribution/rulesets/$site_rule"
+current=$(gh api "$rule_api")
+if jq -e '.bypass_actors | any(.actor_type == "DeployKey" and .bypass_mode == "always")' <<< "$current" >/dev/null; then
+  info 'Deploy key pushes the package site: already allowed'
+else
+  updated=$(jq '{name, target, enforcement, conditions, rules,
+    bypass_actors: (.bypass_actors + [{actor_type: "DeployKey", actor_id: null, bypass_mode: "always"}])}' <<< "$current")
+  # Preserve the API response on failure so GitHub's specific validation error
+  # is visible. The separate distribution integrity ruleset still applies.
+  if ! result=$(gh api --method PUT "$rule_api" --input - <<< "$updated" 2>&1); then
+    printf '%s\n' "$result" >&2
+    die "GitHub rejected the deploy-key update for $distribution's branch write ruleset"
   fi
-  updated=$(printf '%s' "$current" | jq --argjson a "$actor" '{name, target, enforcement, conditions, rules, bypass_actors: (.bypass_actors + [$a])}')
-  printf '%s' "$updated" | gh api --method PUT "repos/$target/rulesets/$id" --input - --jq .id >/dev/null
-  info "$description: allowed"
-}
-# GitHub Actions (app 15368) may CREATE v* tags. "LASA release tag integrity"
-# still forbids every actor from moving or deleting them.
-add_bypass "$repo" 'LASA release tag creation' '{"actor_type":"Integration","actor_id":15368,"bypass_mode":"always"}' 'Release workflow creates version tags'
-# Deploy keys may push the package site. "LASA distribution integrity" still
-# forbids force pushes and branch deletion for every actor.
-add_bypass "$distribution" 'LASA owner-only branch writes' '{"actor_type":"DeployKey","actor_id":null,"bypass_mode":"always"}' 'Deploy key pushes the package site'
+  info 'Deploy key pushes the package site: allowed'
+fi
 
 # ------------------------------------------------------- 4. variables
 stage='setting repository variables'
@@ -376,13 +373,10 @@ else
       }
       wait_until 'the release build (it waits for CI, then builds; about 30-60 minutes)' 240 awaiting_approval
       if [ "$(run_field status)" != completed ]; then
-        if confirm "Approve publishing LASA $version to GitHub Releases, APT and lasa.secureobs.com?"; then
-          environment=$(gh api "repos/$repo/actions/runs/$run/pending_deployments" --jq '.[] | select(.environment.name == "release" and .current_user_can_approve) | .environment.id')
-          [[ $environment =~ ^[0-9]+$ ]] || die 'The owner cannot approve the release environment on this run'
-          gh api --method POST "repos/$repo/actions/runs/$run/pending_deployments" -F "environment_ids[]=$environment" \
-            -f state=approved -f comment="Approved by $login through scripts/setup-ci-publishing.sh" --jq 'length' >/dev/null
+        if confirm "Tag and approve LASA $version for GitHub Releases, APT and lasa.secureobs.com?"; then
+          GITHUB_REPOSITORY="$repo" bash "$(dirname "$0")/release/approve.sh" "$run" "v$version"
         else
-          die "Not approved. Approve it at https://github.com/$repo/actions/runs/$run, then run this script again"
+          die "Run this script again to tag and approve https://github.com/$repo/actions/runs/$run"
         fi
       fi
       run_done() { [ "$(run_field status)" = completed ]; }
@@ -430,7 +424,7 @@ fi
 stage='finished'
 say 'Done'
 info "Every release from now on: merge a release PR (bash scripts/release/prepare.sh X.Y.Z 'title'),"
-info 'then approve the release environment when GitHub asks. CI builds, attests, tags, publishes'
+info 'then use the build summary command to tag and approve it. CI builds, attests, publishes'
 info 'the GitHub Release, signs and pushes APT/Homebrew, and deploys the documentation.'
 info 'Machines installed before this setup pick up the new keyring with their next'
 info "  sudo apt-get update && sudo apt-get install --only-upgrade lasa"

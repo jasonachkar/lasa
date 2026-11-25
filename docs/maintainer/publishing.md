@@ -14,7 +14,7 @@ After the publishing workflow is on `main`, run this from that checkout on the m
 bash scripts/setup-ci-publishing.sh
 ```
 
-The script verifies the protected `release` environment, asks for the APT key passphrase, generates a dedicated signing subkey, and registers a deployment key for the package-site repository. It submits the public keyring update and first release as protected PRs and waits for the required checks. Review the first release and approve its deployment when prompted. Run the same command again after a recoverable failure. Use `--rotate` to replace the CI signing subkey and deployment key, or `--skip-release` to configure publishing and defer the first release.
+The script verifies the protected `release` environment, asks for the APT key passphrase, generates a dedicated signing subkey, and registers a deployment key for the package-site repository. It submits the public keyring update and first release as protected PRs and waits for the required checks. At the prompt, your authenticated owner session tags the tested commit and approves deployment. Run the same command again after a recoverable failure. Use `--rotate` to replace the CI signing subkey and deployment key, or `--skip-release` to configure publishing and defer the first release.
 
 The first automated release carries the new public keyring in its DEBs. The setup script adds a primary-key signature to that release's APT index so existing clients can upgrade using their original keyring. Later releases use the CI subkey. A client that misses the first release may need to rerun the fingerprint-verifying installer at `https://lasa.secureobs.com/install-apt.sh` to refresh its keyring. Rotate the CI subkey before expiry and repeat the migration for the new subkey.
 
@@ -24,7 +24,7 @@ The first automated release carries the new public keyring in its DEBs. The setu
 
 `VERSION=0.0.0 make packages` builds local verification packages and needs Linux, the project's pinned Go and SBOM tools, GNU tar/gzip and `dpkg-deb`. Packages and archives normalize timestamps and ownership using the tagged commit's timestamp. Reports, local state and maintainer documents are not included. Customer Markdown is provided as reference files; the online documentation provides the complete navigation links.
 
-The GitHub-hosted build requires a new version in `CHANGELOG.md` and a successful canonical CI push run for that exact `main` commit. It builds both architectures, archives, SBOMs and a checksum manifest with read-only credentials. After the owner approves the `release` environment, CI attests the manifest, creates the immutable version tag, verifies the provenance and publishes the assets.
+The GitHub-hosted build requires a new version in `CHANGELOG.md` and a successful canonical CI push run for that exact `main` commit. It builds both architectures, archives, SBOMs and a checksum manifest with read-only credentials. The owner creates the immutable version tag and approves the `release` environment. CI verifies the tag, attests the manifest, verifies the provenance and publishes the assets.
 
 `scripts/publish-distribution.sh` retains prior DEB bytes, signs indexes for both architectures, and generates the key-pinning installer and the checksum-pinned Homebrew formula. The release workflow stages the packages and versioned docs together, pushes one fast-forward update and verifies the signed index and version list served by Pages.
 
@@ -74,7 +74,13 @@ That shorthand automatically uses the `jasonachkar/homebrew-lasa` tap. Homebrew 
 
 ## Authorize a release from main
 
-Update `CHANGELOG.md` under `## Unreleased`, then run `bash scripts/release/prepare.sh X.Y.Z 'release title'` in the release branch. Open a PR and merge it after the required checks pass. Once the `main` build passes, review and approve the `release` environment. The workflow then publishes the version. To retry the version at the current tip of `main`:
+Update `CHANGELOG.md` under `## Unreleased`, then run `bash scripts/release/prepare.sh X.Y.Z 'release title'` in the release branch. Open a PR and merge it after the required checks pass. Once the `main` build passes, review the run and use the approval command in its build summary. For example, for run `123456789` and tag `vX.Y.Z`:
+
+```bash
+bash scripts/release/approve.sh 123456789 vX.Y.Z
+```
+
+The command validates the run and its changelog, creates the tag through your owner login, and approves deployment. To retry the version at the current tip of `main`:
 
 ```sh
 gh workflow run release.yml --repo jasonachkar/lasa --ref main -f version=X.Y.Z

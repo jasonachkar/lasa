@@ -31,6 +31,16 @@ case "$*" in
     echo "example/lasa $GITHUB_SHA main push ${RUN_RESULT-success} .github/workflows/ci.yml";;
   'api repos/example/lasa/actions/runs/42/jobs?filter=latest&per_page=100 --jq '*)
     echo "${GATE_RESULT-success}";;
+  'api repos/example/lasa/actions/runs/55')
+    printf '{"head_repository":{"full_name":"example/lasa"},"head_sha":"%s","head_branch":"%s","path":".github/workflows/release.yml","event":"push","status":"waiting"}\n' "$GITHUB_SHA" "${APPROVAL_BRANCH:-main}";;
+  'api repos/example/lasa/actions/runs/55/jobs?filter=all&per_page=100 --jq '*)
+    echo "${BUILD_RESULT-success}";;
+  'api repos/example/lasa/contents/CHANGELOG.md?ref='"$GITHUB_SHA"' -H Accept: application/vnd.github.raw')
+    printf '# Changelog\n\n## 1.2.3 — release (2026-11-24)\n';;
+  'api repos/example/lasa/actions/runs/55/pending_deployments --jq '*)
+    echo "${APPROVAL_ENV-7}";;
+  'api --method POST repos/example/lasa/actions/runs/55/pending_deployments -F environment_ids[]=7 -f state=approved '*)
+    test -e "$CREATED_MARKER"; touch "$APPROVED_MARKER"; echo 1;;
   'attestation verify '*)
     [[ $* == *" --signer-workflow example/lasa/.github/workflows/release.yml --source-ref refs/heads/main --source-digest $GITHUB_SHA --deny-self-hosted-runners" ]]
     [[ ${ATTESTATION_RESULT:-success} == success ]];;
@@ -54,6 +64,7 @@ reject() {
 }
 verify() { bash "$root/scripts/security/verify-release-source.sh" "$@"; }
 export CREATED_MARKER="$temp/created"
+export APPROVED_MARKER="$temp/approved"
 verify v1.2.3
 GITHUB_EVENT_NAME=push verify v1.2.3
 GITHUB_REF=refs/heads/feature reject verify v1.2.3
@@ -75,6 +86,17 @@ test ! -e "$CREATED_MARKER"
 TAG_SHA=0000000000000000000000000000000000000000 reject create_tag v1.2.3 "$GITHUB_SHA"
 reject create_tag v1.2.3-rc1 "$GITHUB_SHA"
 reject create_tag v1.2.3 main
+ACTOR_LOGIN=github-actions TAG_EXISTS=0 reject create_tag v1.2.3 "$GITHUB_SHA"
+GITHUB_ACTIONS=true TAG_EXISTS=0 reject create_tag v1.2.3 "$GITHUB_SHA"
+approve() { bash "$root/scripts/release/approve.sh" 55 "$@"; }
+APPROVAL_BRANCH=other TAG_EXISTS=0 reject approve v1.2.3
+BUILD_RESULT=failure TAG_EXISTS=0 reject approve v1.2.3
+APPROVAL_ENV='' TAG_EXISTS=0 reject approve v1.2.3
+TAG_EXISTS=0 reject approve v1.2.4
+ACTOR_LOGIN=other TAG_EXISTS=0 reject approve v1.2.3
+test ! -e "$CREATED_MARKER" && test ! -e "$APPROVED_MARKER"
+TAG_EXISTS=0 approve v1.2.3
+test -e "$CREATED_MARKER" && test -e "$APPROVED_MARKER"
 reject verify v1.2.3-extra
 TAG_SHA=0000000000000000000000000000000000000000 reject verify v1.2.3
 MAIN_BASE=0000000000000000000000000000000000000000 reject verify v1.2.3

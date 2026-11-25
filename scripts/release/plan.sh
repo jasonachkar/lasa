@@ -4,17 +4,22 @@
 #   plan.sh push COMMIT        release when COMMIT raised the newest versioned
 #                              CHANGELOG heading (a merged release PR)
 #   plan.sh dispatch COMMIT V  manual retry: V must be COMMIT's newest heading
+#   plan.sh identify          read CHANGELOG.md from standard input
 #
 # Prints MAJOR.MINOR.PATCH for a release and nothing otherwise. A tag for the
 # version may already exist only if it points at COMMIT (an interrupted run).
 set -euo pipefail
-mode=${1:?Usage: plan.sh push|dispatch COMMIT [VERSION]}
-commit=$(git rev-parse --verify "${2:?Missing commit}^{commit}")
+mode=${1:?Usage: plan.sh push|dispatch COMMIT [VERSION], or plan.sh identify}
 semver='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
-newest() {
-  git show "$1:CHANGELOG.md" 2>/dev/null |
-    sed -n -E "s/^## ($semver) — .+ \\([0-9]{4}-[0-9]{2}-[0-9]{2}\\)\$/\\1/p" | head -n 1
+identify() {
+  sed -n -E "s/^## ($semver) — .+ \\([0-9]{4}-[0-9]{2}-[0-9]{2}\\)\$/\\1/p" | sed -n '1p'
 }
+if [[ $mode == identify ]]; then
+  identify
+  exit
+fi
+commit=$(git rev-parse --verify "${2:?Missing commit}^{commit}")
+newest() { git show "$1:CHANGELOG.md" 2>/dev/null | identify; }
 greater() { [[ $1 != "$2" && $(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1) == "$1" ]]; }
 current=$(newest "$commit")
 case $mode in
