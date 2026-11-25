@@ -41,7 +41,7 @@ jobs:
           bash test/release-security.sh
           bash test/domain.sh
           bash test/bootstrap-distribution.sh
-          shellcheck scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-docs.sh scripts/install-apt-body.sh scripts/security/*.sh test/release-security.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh scripts/generate-bpf.sh
+          shellcheck scripts/bootstrap-distribution.sh scripts/configure-domain.sh scripts/next-version.sh scripts/package-release.sh scripts/publish-distribution.sh scripts/publish-docs.sh scripts/install-apt-body.sh scripts/security/*.sh test/release-security.sh test/distribution.sh test/bootstrap-distribution.sh test/domain.sh test/versioning.sh test/docs.sh test/installed-smoke.sh scripts/generate-bpf.sh
       - name: Real container view smoke test
         run: |
           version=$(make -s print-version)
