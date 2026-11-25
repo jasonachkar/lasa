@@ -90,7 +90,8 @@ def squash_merge(state, number):
     pr.update(state="MERGED", merge_sha=sha)
     if pr["title"].startswith("Release "):
         run = str(len(state["runs"]) + 1000)
-        state["runs"][run] = {"sha": sha, "head_sha": sha, "status": "waiting", "conclusion": None,
+        state["runs"][run] = {"sha": sha, "head_sha": sha, "status": "completed", "conclusion": "failure",
+                              "run_attempt": 1, "pending": False,
                               "head_repository": {"full_name": repo}, "head_branch": "main",
                               "path": ".github/workflows/release.yml", "event": "push",
                               "version": pr["title"].split()[1]}
@@ -220,14 +221,19 @@ def api(state, args):
         if match[3] == "/pending_deployments":
             if method == "POST":
                 assert fields["state"] == ["approved"] and fields["environment_ids[]"] == ["7"]
+                assert run["pending"]
                 log(f"approved run {match[2]}")
-                run["status"] = "in_progress"
+                run.update(status="in_progress", pending=False)
                 publish_release(state, match[2])
                 return emit(jq([{}], expression))
             pending = ([{"environment": {"id": 7, "name": "release"}, "current_user_can_approve": True}]
-                       if run["status"] == "waiting" else [])
+                       if run["pending"] else [])
             return emit(jq(pending, expression))
-        return emit(jq(run, expression))
+        reported = run.copy()
+        if run.pop("retry_requested", False):
+            # GitHub can return the old attempt number just after queuing a retry.
+            run.update(status="in_progress", run_attempt=run["run_attempt"] + 1, pending=True)
+        return emit(jq(reported, expression))
     fail(f"unexpected gh api call: {args}", 90)
 
 
@@ -280,7 +286,7 @@ def main():
         runs = [{"databaseId": int(i)} for i, r in state["runs"].items() if r["sha"] == sha]
         emit(jq(runs, option(args, "--jq")))
     elif command == ["run", "rerun"]:
-        state["runs"][args[2]].update(status="waiting", conclusion=None)
+        state["runs"][args[2]].update(status="queued", conclusion=None, retry_requested=True)
     else:
         fail(f"unexpected gh command: {args}", 90)
     save(state)
