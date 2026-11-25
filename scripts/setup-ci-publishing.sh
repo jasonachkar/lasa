@@ -362,14 +362,21 @@ else
     run_field() { gh api "repos/$repo/actions/runs/$run" --jq ".$1"; }
     # An interrupted earlier attempt (for example an expired approval) is retried.
     if [ "$(run_field status)" = completed ] && [ "$(run_field conclusion)" != success ]; then
+      attempt=$(run_field run_attempt)
+      [[ $attempt =~ ^[0-9]+$ ]] || die 'Could not identify the previous release attempt'
       info 'Retrying the failed jobs of the earlier release run'
       gh run rerun "$run" --repo "$repo" --failed
-      sleep "$poll"
+      retry_started() {
+        local next
+        next=$(run_field run_attempt)
+        [[ $next =~ ^[0-9]+$ ]] && (( next > attempt ))
+      }
+      wait_until 'GitHub to start the new release attempt' 5 retry_started
     fi
     if [ "$(run_field status)" != completed ]; then
       awaiting_approval() {
         [ "$(run_field status)" != completed ] || return 0
-        [ "$(gh api "repos/$repo/actions/runs/$run/pending_deployments" --jq 'length')" != 0 ]
+        [ "$(gh api "repos/$repo/actions/runs/$run/pending_deployments" --jq '[.[] | select(.environment.name == "release")] | length')" != 0 ]
       }
       wait_until 'the release build (it waits for CI, then builds; about 30-60 minutes)' 240 awaiting_approval
       if [ "$(run_field status)" != completed ]; then

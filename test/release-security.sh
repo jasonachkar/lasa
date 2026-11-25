@@ -32,7 +32,7 @@ case "$*" in
   'api repos/example/lasa/actions/runs/42/jobs?filter=latest&per_page=100 --jq '*)
     echo "${GATE_RESULT-success}";;
   'api repos/example/lasa/actions/runs/55')
-    printf '{"head_repository":{"full_name":"example/lasa"},"head_sha":"%s","head_branch":"%s","path":".github/workflows/release.yml","event":"push","status":"waiting"}\n' "$GITHUB_SHA" "${APPROVAL_BRANCH:-main}";;
+    printf '{"head_repository":{"full_name":"example/lasa"},"head_sha":"%s","head_branch":"%s","path":".github/workflows/release.yml","event":"push","status":"%s"}\n' "$GITHUB_SHA" "${APPROVAL_BRANCH:-main}" "${APPROVAL_RUN_STATUS:-waiting}";;
   'api repos/example/lasa/actions/runs/55/jobs?filter=all&per_page=100 --jq '*)
     echo "${BUILD_RESULT-success}";;
   'api repos/example/lasa/contents/CHANGELOG.md?ref='"$GITHUB_SHA"' -H Accept: application/vnd.github.raw')
@@ -92,10 +92,12 @@ approve() { bash "$root/scripts/release/approve.sh" 55 "$@"; }
 APPROVAL_BRANCH=other TAG_EXISTS=0 reject approve v1.2.3
 BUILD_RESULT=failure TAG_EXISTS=0 reject approve v1.2.3
 APPROVAL_ENV='' TAG_EXISTS=0 reject approve v1.2.3
+APPROVAL_RUN_STATUS=waiting APPROVAL_ENV='' TAG_EXISTS=0 reject approve v1.2.3
+grep -Fq 'has no deployment awaiting your approval' "$temp/rejected"
 TAG_EXISTS=0 reject approve v1.2.4
 ACTOR_LOGIN=other TAG_EXISTS=0 reject approve v1.2.3
 test ! -e "$CREATED_MARKER" && test ! -e "$APPROVED_MARKER"
-TAG_EXISTS=0 approve v1.2.3
+APPROVAL_RUN_STATUS=in_progress TAG_EXISTS=0 approve v1.2.3
 test -e "$CREATED_MARKER" && test -e "$APPROVED_MARKER"
 reject verify v1.2.3-extra
 TAG_SHA=0000000000000000000000000000000000000000 reject verify v1.2.3
