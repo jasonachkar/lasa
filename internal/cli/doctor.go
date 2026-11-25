@@ -69,6 +69,11 @@ func doctorCommand() *cobra.Command {
 			}
 			checks = append(checks, item)
 		}
+		for i := range checks {
+			if d := checks[i].Diagnostic; d != nil {
+				d.Impact = doctorImpact(checks[i])
+			}
+		}
 		requiredOK := true
 		for _, check := range checks {
 			if check.Required && check.State != domain.Observed {
@@ -88,8 +93,12 @@ func doctorCommand() *cobra.Command {
 			fmt.Fprintf(&b, "LASA doctor: static prerequisites available=%t\n", requiredOK)
 			for _, check := range checks {
 				fmt.Fprintf(&b, "%s required=%t state=%s: %s\n", check.Name, check.Required, check.State, report.Safe(check.Detail))
-				if check.Diagnostic != nil {
-					fmt.Fprintf(&b, "  %s\n", report.Safe(check.Diagnostic.Error()))
+				if d := check.Diagnostic; d != nil {
+					fmt.Fprintf(&b, "  %s: %s [%s %s]\n", report.Safe(d.Code), report.Safe(d.Cause), report.Safe(d.Operation), report.Safe(d.Target))
+					fmt.Fprintf(&b, "  affects: %s\n", report.Safe(d.Impact))
+					if d.Remediation != "" {
+						fmt.Fprintf(&b, "  hint: %s\n", report.Safe(d.Remediation))
+					}
 				}
 			}
 			b.WriteString("BTF visibility alone does not prove BPF load, attachment, or event delivery. Container views and hidepid may conceal other processes.\n")
@@ -153,4 +162,18 @@ func classifyEnvironment(osrelease string, wslInterop, dockerenv, containerenv b
 		return "container", "; results describe the container's view, not the host; use --profile container to record that scope"
 	}
 	return "native Linux host", ""
+}
+
+// doctorImpact states what a failed prerequisite affects. Doctor checks gate
+// scanning capabilities, not evidence, so generic evidence wording does not apply.
+func doctorImpact(check DoctorCheck) string {
+	switch {
+	case check.Required:
+		return "scans cannot run until this prerequisite is available"
+	case strings.HasPrefix(check.Name, "ebpf_"):
+		return "only --profile sensor; static scans are unaffected"
+	case check.Name == "mount_visibility":
+		return "mount and read-only context in reports will be unknown"
+	}
+	return "optional context only; scans still run"
 }

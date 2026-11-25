@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Reducing an oversized report no longer builds the full JSON document to measure it, and picks the reduced file scope from each file's measured size, cutting peak memory for very broad scans from about 625–825 MB to about 410 MB. Under the example unit's `MemoryMax=512M`, such a scan now completes instead of being OOM-killed (#30).
+- LASA sets the Go soft memory limit to 80% of a cgroup v2 `memory.max` when `GOMEMLIMIT` is unset (#30).
+- `lasa doctor` states what each failed check affects and prints a `hint:` line, replacing the generic evidence impact text (#31).
+
 ## 0.2.0 — readable findings and reliable coverage (2026-11-24)
 
 - Terminal output leads with a findings table (short ID, severity, priority, finding, affected resource), followed by short per-finding blocks with the observed facts, rule-specific risk and impact, fix, and a suggested command for permission findings. Diagnostics are grouped into collection gaps and items not inspected by design; caveats common to every finding appear once. Adds `--color auto|always|never`.
